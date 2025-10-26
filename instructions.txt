@@ -1,0 +1,99 @@
+CMAPSS RUL Pipeline — Setup & Usage Guide
+
+1) What this project does (quick)
+- Loads CMAPSS turbofan datasets (FD001–FD004).
+- Computes Remaining Useful Life (RUL) targets and caps them (default 125 cycles).
+- Clusters operating settings (K-means) into regimes; scales sensors per regime; adds one‑hot regime features.
+- Builds sliding windows (sequence_length) for train/val/test.
+- Trains a TCN / LSTM / CNN; optional hyperparameter tuning with KerasTuner.
+- Evaluates per dataset (RMSE + CMAPSS score) and writes final engine‑level predictions CSV.
+
+Outputs: _outputs/results/model/final_engine_rul_predictions.csv
+
+2) Prerequisites
+- Python 3.10 or 3.11 recommended.
+- CPU (Windows): tensorflow-intel==2.17.1. GPU (Linux/NVIDIA): tensorflow==2.17.1 with CUDA/CuDNN.
+
+3) Layout (expected)
+your_project/
+├─ main.py
+└─ cmapss_rul/
+   ├─ __init__.py
+   ├─ config.py
+   ├─ download.py
+   ├─ load.py
+   ├─ explore.py
+   ├─ preprocess.py
+   ├─ regimes.py
+   ├─ sequences.py
+   ├─ eval.py
+   ├─ model_tcn.py
+   ├─ model_lstm.py
+   └─ model_cnn.py
+
+Data ends up under: CMAPSS/RAW_DATA/CMaps/
+
+4) Virtual environment
+Windows (PowerShell):
+  python -m venv .venv
+  . .\.venv\Scripts\Activate.ps1
+  pip install --upgrade pip
+
+macOS / Linux:
+  python3 -m venv .venv
+  source .venv/bin/activate
+  pip install --upgrade pip
+
+5) Install dependencies
+pip install "numpy>=1.23.5,<2.3.0" "scipy>=1.11,<1.14" "scikit-learn>=1.3,<1.6" pandas matplotlib seaborn requests keras-tuner tensorflow-intel==2.17.1
+
+6) First run (auto-download + smoke test)
+python main.py --download
+- Trains a quick default CNN (epochs=1 in config.py).
+- Saves final predictions to _outputs/results/model/final_engine_rul_predictions.csv
+
+7) Common options
+--arch {tcn|lstm|cnn}           (choose model)
+--epochs N                      (e.g., 60)
+--sequence-length N             (e.g., 50, 60, 70)
+--k K                           (regimes; default 6)
+--cap N                         (RUL cap; default 125)
+--datasets FD001 [FD002 ...]    (subset)
+
+Examples:
+  python main.py --arch tcn --epochs 60 --sequence-length 70 --k 6 --cap 125 --datasets FD001 FD002
+  python main.py --arch lstm --datasets FD001 FD003 --epochs 60 --sequence-length 70
+  python main.py --arch cnn --datasets FD001 --tuning on --epochs 40
+
+8) Paths & data
+- config.py sets:
+  raw_data_dir = CMAPSS/RAW_DATA
+  user_data_dir = CMAPSS/RAW_DATA/CMaps
+- "--download" fetches CMaps.zip and extracts standard files:
+  train_FD00X.txt, test_FD00X.txt, RUL_FD00X.txt
+- If you already have files, place them in CMAPSS/RAW_DATA/CMaps/ and run without --download.
+- Private GitHub? add: --github-token YOUR_TOKEN
+
+9) Pipeline steps
+- explore.non_constant_sensors() → optional sensor pruning (common across datasets)
+- preprocess.compute_rul_train/test(), preprocess.cap_rul()
+- regimes: KMeans on op_setting_*; per‑regime StandardScaler for sensors; global scaler for settings
+- sequences.create_sequences(): sliding windows for train/val
+- sequences.build_test_sequences_per_dataset(): windows + last index per engine for final table
+- model_{tcn,lstm,cnn}.train_default() or .tune()
+- eval.per_dataset_metrics(): RMSE + CMAPSS
+- eval.build_final_engine_table(): one row per engine at last cycle (saves CSV)
+
+10) Troubleshooting
+- "No op_setting* / sensor* columns": verify files exist and loader renamed columns correctly.
+- "No final-window predictions...": decrease --sequence-length (e.g., 50 → 30) so test engines have enough length.
+- Slow CPU training: keep epochs modest; try CNN; or reduce window size.
+- Download errors: provide --github-token or place files manually.
+
+11) Change defaults
+Edit cmapss_rul/config.py (TrainingConfig): arch, use_tuning, epochs, sequence_length, k, cap, datasets.
+
+12) Quick-start recipes
+- Fast smoke test (all datasets):  python main.py --epochs 1
+- TCN, FD001 only (reasonable):    python main.py --arch tcn --datasets FD001 --epochs 40 --sequence-length 60
+- LSTM, FD001+FD003:               python main.py --arch lstm --datasets FD001 FD003 --epochs 60 --sequence-length 70

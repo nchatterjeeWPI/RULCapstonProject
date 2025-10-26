@@ -78,3 +78,99 @@ def train_default(
         verbose=verbose,
     )
     return model, history  # <<< return tuple
+
+# --- Add this block to model_lstm.py ---
+def tune(
+    X_tr: np.ndarray,
+    y_tr: np.ndarray,
+    X_val: np.ndarray,
+    y_val: np.ndarray,
+    max_epochs: int = 60,
+    directory: str = "lstm_tuning",
+    project_name: str = "cmapss_lstm",
+):
+    """
+    Hyperband tuning for LSTM. Returns (best_model, best_hp, tuner, history).
+    Search space is modest to keep CPU runs practical; expand on GPU.
+    """
+    try:
+        import keras_tuner as kt
+    except Exception as e:
+        raise ImportError("keras-tuner is required for LSTM tune(); pip install keras-tuner") from e
+
+    # Ensure proper dtypes/shapes
+    X_tr = np.asarray(X_tr, dtype="float32")
+    y_tr = np.asarray(y_tr, dtype="float32").reshape(-1, 1)
+    X_val = np.asarray(X_val, dtype="float32")
+    y_val = np.asarray(y_val, dtype="float32").reshape(-1, 1)
+
+    # Remove any non-finite rows
+    tr_mask = np.isfinite(X_tr).all(axis=(1, 2)) & np.isfinite(y_tr).ravel()
+    va_mask = np.isfinite(X_val).all(axis=(1, 2)) & np.isfinite(y_val).ravel()
+    X_tr, y_tr = X_tr[tr_mask], y_tr[tr_mask]
+    X_val, y_val = X_val[va_mask], y_val[va_mask]
+
+    def build_from_hp(hp):
+        lstm1_units = hp.Choice("lstm1_units", [32, 64, 96, 128])
+        lstm2_units = hp.Choice("lstm2_units", [16, 32, 48, 64])
+        dense_units = hp.Choice("dense_units", [32, 64, 96, 128])
+        dropout = hp.Float("dropout", 0.1, 0.4, step=0.1)
+        recurrent_dropout = hp.Float("recurrent_dropout", 0.0, 0.3, step=0.1)
+        lr = hp.Float("lr", 1e-4, 3e-3, sampling="log")
+        # let Hyperband choose batch size too
+        _ = hp.Choice("batch_size", [32, 64, 96])
+
+        import tensorflow as tf
+        from tensorflow.keras import Model
+        from tensorflow.keras.layers import Input, LSTM, Dense, Dropout
+        from tensorflow.keras.optimizers import Adam
+
+        tf.keras.backend.clear_session()
+        inp = Input(shape=X_tr.shape[1:], dtype="float32")
+        x = LSTM(lstm1_units, return_sequences=True, dropout=dropout,
+                 recurrent_dropout=recurrent_dropout)(inp)
+        x = LSTM(lstm2_units, return_sequences=False, dropout=dropout,
+                 recurrent_dropout=recurrent_dropout)(x)
+        x = Dense(dense_units, activation="relu")(x)
+        x = Dropout(dropout)(x)
+        out = Dense(1, activation="linear")(x)
+
+        model = Model(inp, out)
+        opt = Adam(learning_rate=lr, clipnorm=1.0)
+        model.compile(optimizer=opt, loss="mse", metrics=["mae"])
+        return model
+
+    tuner = kt.Hyperband(
+        hypermodel=build_from_hp,
+        objective="val_loss",
+        max_epochs=max_epochs,
+        factor=3,
+        directory=directory,
+        project_name=project_name,
+    )
+
+    from tensorflow.keras.callbacks import EarlyStopping
+    es = EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True)
+
+    tuner.search(
+        X_tr, y_tr,
+        validation_data=(X_val, y_val),
+        epochs=max_epochs,
+        callbacks=[es],
+        verbose=1,
+    )
+
+    best_hp = tuner.get_best_hyperparameters(1)[0]
+    best_model = build_from_hp(best_hp)
+
+    bs = best_hp.get("batch_size", 64) if hasattr(best_hp, "get") else 64
+    history = best_model.fit(
+        X_tr, y_tr,
+        validation_data=(X_val, y_val),
+        epochs=max_epochs,
+        batch_size=bs,
+        callbacks=[es],
+        verbose=1,
+    )
+    return best_model, best_hp, tuner, history
+# --- end add ---

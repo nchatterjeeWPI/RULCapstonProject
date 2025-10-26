@@ -120,17 +120,25 @@ def main():
         print("[INFO] Training with fixed hyperparameters...")
         model, _ = mod.train_default(X_tr, y_tr, X_val, y_val, epochs=epochs)
 
-
     else:
-        print("[INFO] Performing hyperparameter tuning...")
-        model, _, best_hp, bs = mod.tune_and_train(
-            X_tr, y_tr, X_val, y_val,
-            max_epochs=epochs, directory='tcn_tuning', project_name=proj
-        )
-        try:
-            print("Best hyperparameters:", best_hp.values)
-        except Exception:
-            pass
+        if hasattr(mod, "tune"):
+            print("[INFO] Performing hyperparameter tuning...")
+            # directory name uses the selected arch (tcn/cnn/lstm)
+            best_model, best_hp, tuner, history = mod.tune(
+                X_tr, y_tr, X_val, y_val,
+                max_epochs=epochs,
+                directory=f"{arch}_tuning",
+                project_name=proj
+            )
+            model = best_model
+            try:
+                print("Best hyperparameters:", best_hp.values)
+            except Exception:
+                pass
+        else:
+            print(f"[WARN] Tuning is not implemented for '{arch}'. Training with fixed hyperparameters.")
+            model, _ = mod.train_default(X_tr, y_tr, X_val, y_val, epochs=epochs)
+
 
     # Test windows
     X_te_dict, y_te_dict, engine_ids_te_dict, last_idx_map = \
