@@ -1,8 +1,6 @@
-from typing import Dict, List, Set
 import pandas as pd
-import numpy as np
 
-def missing_and_dupes_report(train_data: Dict[str, pd.DataFrame], test_data: Dict[str, pd.DataFrame]) -> Dict[str, dict]:
+def missing_and_dupes_report(train_data, test_data):
     out = {}
     for fd in train_data.keys():
         out[fd] = {
@@ -13,25 +11,24 @@ def missing_and_dupes_report(train_data: Dict[str, pd.DataFrame], test_data: Dic
         }
     return out
 
-def non_constant_sensors(train_data: Dict[str, pd.DataFrame], std_threshold: float = 1e-4) -> List[str]:
-    sensor_sets: List[Set[str]] = []
+def non_constant_sensors(train_data, std_threshold: float = 1e-4):
+    sensor_sets = []
     for fd, df in train_data.items():
         sensor_op_cols = [c for c in df.columns if c.startswith("sensor_") or c.startswith("op_setting_")]
         std = df[sensor_op_cols].std(numeric_only=True)
         non_const = std[std >= std_threshold].index.tolist()
         non_const_sensors = [c for c in non_const if c.startswith("sensor_")]
         sensor_sets.append(set(non_const_sensors))
-    if not sensor_sets:
-        return []
+    if not sensor_sets: return []
     common = set.intersection(*sensor_sets)
     return sorted(list(common), key=lambda x: int(x.split("_")[1]))
 
-def strong_correlations(df: pd.DataFrame, cols: List[str], thr: float = 0.9) -> List[tuple]:
-    corr = df[cols].corr()
-    pairs = []
-    for i in range(len(cols)):
-        for j in range(i+1, len(cols)):
-            v = corr.iloc[i, j]
-            if abs(v) > thr:
-                pairs.append((cols[i], cols[j], float(v)))
-    return pairs
+def inspect(train_data_dict):
+    print("[INFO] Inspecting training datasets...")
+    for name, df in train_data_dict.items():
+        print(f"\n--- Dataset: {name} ---")
+        print(f"Shape: {df.shape}")
+        print(f"Columns: {list(df.columns[:10])} ...")
+        print(f"Missing values: {df.isnull().sum().sum()}")
+        print(f"Duplicate rows: {df.duplicated().sum()}")
+        print(df.head(3))

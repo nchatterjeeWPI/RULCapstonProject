@@ -14,12 +14,8 @@ class Paths:
 
 def make_paths(base_raw: str = "CMAPSS/RAW_DATA", gdrive_root: str = "") -> Paths:
     raw = Path(base_raw)
-    # In the original notebook, user_data_dir ended up pointing to RAW_DATA/CMaps
     user = raw / "CMaps"
-    if gdrive_root:
-        groot = Path(gdrive_root)
-    else:
-        groot = Path("./_outputs")
+    groot = Path(gdrive_root) if gdrive_root else Path("./_outputs")
     return Paths(
         raw_data_dir=raw,
         user_data_dir=user,
@@ -36,3 +32,18 @@ def ensure_dirs(p: Paths):
         p.gdrive_results_model, p.gdrive_results_figures, p.gdrive_src
     ]:
         d.mkdir(parents=True, exist_ok=True)
+
+ALL_FD = ['FD001', 'FD002', 'FD003', 'FD004']
+
+@dataclass
+class TrainingConfig:
+    arch: str = "cnn"
+    use_tuning: bool = False
+    epochs: int = 1
+    sequence_length: int = 50
+    k: int = 6
+    cap: int = 125
+    datasets: List[str] = tuple(ALL_FD)
+
+TRAINING = TrainingConfig()
+

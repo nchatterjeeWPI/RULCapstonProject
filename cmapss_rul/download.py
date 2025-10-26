@@ -1,21 +1,21 @@
-import os
-import zipfile
-import requests
 from pathlib import Path
-from typing import Optional
+import requests, zipfile
 
+# Public mirror of CMAPSS CMaps.zip (adjust if needed)
 DEFAULT_URL = "https://raw.githubusercontent.com/nchatterjeeWPI/CMAPSS-RUL/9937bcce8e4d97bf09f935a050bebe7e0138472e/CMaps.zip"
 
-def download_and_extract(url: str, out_zip: Path, extract_to: Path, github_token: Optional[str] = None):
-    headers = {}
-    if github_token:
-        headers["Authorization"] = f"token {github_token}"
-    out_zip.parent.mkdir(parents=True, exist_ok=True)
-    r = requests.get(url, headers=headers, stream=True, timeout=60)
+def fetch_cmaps(raw_data_dir: Path, url: str = DEFAULT_URL, github_token: str | None = None):
+    raw_data_dir.mkdir(parents=True, exist_ok=True)
+    out_zip = raw_data_dir.parent / "CMaps.zip"
+    headers = {"Authorization": f"token {github_token}"} if github_token else {}
+    print(f"[DOWNLOAD] {url} -> {out_zip}")
+    r = requests.get(url, headers=headers, stream=True, timeout=120)
     r.raise_for_status()
     with open(out_zip, "wb") as f:
-        for chunk in r.iter_content(chunk_size=8192):
-            if chunk:
-                f.write(chunk)
+        for chunk in r.iter_content(8192):
+            if chunk: f.write(chunk)
+    print(f"[DOWNLOAD] Saved: {out_zip}")
     with zipfile.ZipFile(out_zip, "r") as z:
-        z.extractall(extract_to)
+        z.extractall(raw_data_dir)
+    print(f"[DOWNLOAD] Extracted to: {raw_data_dir}")
+
