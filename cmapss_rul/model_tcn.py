@@ -1,6 +1,21 @@
+# ===============================================================
 # cmapss_rul/model_tcn.py
-from __future__ import annotations
+# ===============================================================
+# This module defines a TCN (Temporal Convolutional Network) model for
+# time-series regression of Remaining Useful Life (RUL).
+#
+# What’s inside:
+#   1) _residual_block(): a causal 1D conv residual block (TCN building unit)
+#   2) build(): assembles the full TCN model and compiles it
+#   3) train_default(): trains the model with fixed hyperparameters
+#   4) tune(): optional KerasTuner Hyperband search for TCN hyperparameters
+#
+# Why TCN?
+# TCNs use causal, dilated convolutions to “look back” over time without leaking
+# future information. Residual connections help gradients flow and stabilize training.
+# ===============================================================
 
+from __future__ import annotations
 from typing import Optional, Tuple
 
 import numpy as np
@@ -18,6 +33,14 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, Callback
 
 
+# ===============================================================
+# 1) TCN RESIDUAL BLOCK (causal convolutions + residual skip)
+# ===============================================================
+# A residual block stacks two causal Conv1D layers, each followed by batch norm,
+# ReLU activation, and dropout. If the input and output channel counts differ,
+# a 1x1 convolution matches dimensions so we can add (skip connection).
+# Dilations (1, 2, 4, …) let the network see further back in time efficiently.
+# ---------------------------------------------------------------
 def _residual_block(x, filters: int, kernel_size: int, dilation_rate: int, dropout: float):
     """
     A causal Temporal Convolutional (TCN) residual block:
@@ -26,25 +49,34 @@ def _residual_block(x, filters: int, kernel_size: int, dilation_rate: int, dropo
       - 1x1 Conv skip if channels differ
       - Add skip connection
     """
+    # First causal conv stack
     h = Conv1D(filters=filters, kernel_size=kernel_size, dilation_rate=dilation_rate,
                padding="causal")(x)
     h = BatchNormalization()(h)
     h = Activation("relu")(h)
     h = Dropout(dropout)(h)
 
+    # Second causal conv stack
     h = Conv1D(filters=filters, kernel_size=kernel_size, dilation_rate=dilation_rate,
                padding="causal")(h)
     h = BatchNormalization()(h)
     h = Activation("relu")(h)
     h = Dropout(dropout)(h)
 
-    # Match channels for the residual connection if needed
+    # If input channels != output channels, align with 1x1 conv so shapes match
     if x.shape[-1] != filters:
         x = Conv1D(filters=filters, kernel_size=1, padding="same")(x)
 
+    # Residual add: output = transformed(x) + (possibly projected) x
     return Add()([x, h])
 
 
+# ===============================================================
+# 2) BUILD THE TCN MODEL
+# ===============================================================
+# Stacks multiple residual blocks with increasing dilation (1, 2, 4, …),
+# then pools over time and finishes with a linear Dense(1) for RUL regression.
+# ---------------------------------------------------------------
 def build(input_shape: Tuple[int, int],
           filters: int = 48,
           blocks: int = 4,
@@ -67,23 +99,36 @@ def build(input_shape: Tuple[int, int],
     """
     inp = Input(shape=input_shape)
     x = inp
+
+    # Stack residual blocks with exponentially increasing dilation
     for i in range(blocks):
         x = _residual_block(
             x,
             filters=filters,
             kernel_size=kernel_size,
-            dilation_rate=2 ** i,
+            dilation_rate=2 ** i,  # 1, 2, 4, ...
             dropout=dropout,
         )
 
+    # Pool feature maps over time to a single vector
     x = GlobalAveragePooling1D()(x)
+
+    # Final regression head: predict a single continuous RUL value
     out = Dense(1, activation="linear")(x)
 
+    # Build and compile the model
     model = Model(inputs=inp, outputs=out)
     model.compile(optimizer=Adam(learning_rate=lr), loss="mse", metrics=["mae"])
     return model
 
 
+# ===============================================================
+# 3) TRAIN WITH FIXED HYPERPARAMETERS
+# ===============================================================
+# Trains the TCN using early stopping (to avoid overfitting) and
+# a ReduceLROnPlateau scheduler (to lower LR when validation stalls).
+# Returns both the trained model and the Keras history object.
+# ---------------------------------------------------------------
 def train_default(
     X_tr: np.ndarray,
     y_tr: np.ndarray,
@@ -105,6 +150,7 @@ def train_default(
     Returns:
         (trained_model, history)
     """
+    # Build a fresh model using the supplied input shape and hyperparameters
     model = build(
         input_shape=X_tr.shape[1:],
         filters=filters,
@@ -114,6 +160,7 @@ def train_default(
         lr=lr,
     )
 
+    # Default callbacks: early stopping + LR scheduler on validation loss
     cb = [
         EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True),
         ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=5, min_lr=1e-5),
@@ -121,6 +168,7 @@ def train_default(
     if callbacks:
         cb.extend(callbacks)
 
+    # Fit the model
     history = model.fit(
         X_tr,
         y_tr,
@@ -133,6 +181,16 @@ def train_default(
     return model, history
 
 
+# ===============================================================
+# 4) OPTIONAL HYPERPARAMETER TUNING (KerasTuner Hyperband)
+# ===============================================================
+# Searches over key TCN hyperparameters (filters, blocks, kernel_size, dropout, lr).
+# Uses Hyperband to allocate training budget efficiently. Returns:
+#   best_model: a model built from the best hyperparameters
+#   best_hp:    the HyperParameters object chosen by the tuner
+#   tuner:      the tuner instance (for inspection / dashboards)
+#   history:    training history of best_model
+# ---------------------------------------------------------------
 def tune(
     X_tr: np.ndarray,
     y_tr: np.ndarray,
@@ -148,8 +206,10 @@ def tune(
     try:
         import keras_tuner as kt
     except Exception as e:
+        # Friendly error if keras-tuner isn't installed
         raise ImportError("keras-tuner is required for tune(); pip install keras-tuner") from e
 
+    # Define how to build a model from a set of hyperparameters
     def build_from_hp(hp):
         filters = hp.Choice("filters", [32, 48, 64, 96])
         blocks = hp.Int("blocks", min_value=3, max_value=6, step=1)
@@ -165,6 +225,7 @@ def tune(
             lr=lr,
         )
 
+    # Set up a Hyperband tuner to minimize validation loss
     tuner = kt.Hyperband(
         hypermodel=build_from_hp,
         objective="val_loss",
@@ -174,8 +235,10 @@ def tune(
         project_name=project_name,
     )
 
+    # Still keep early stopping in searches to avoid wasting time
     es = EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True)
 
+    # Run the search over hyperparameters
     tuner.search(
         X_tr,
         y_tr,
@@ -185,11 +248,14 @@ def tune(
         verbose=1,
     )
 
+    # Retrieve the best hyperparameters and build the corresponding model
     best_hp = tuner.get_best_hyperparameters(1)[0]
     best_model = build_from_hp(best_hp)
 
-    # Batch size from HP if present, else default
+    # Optional: allow batch_size to be part of HPs (fallback to 64 if not set)
     bs = best_hp.get("batch_size", 64) if hasattr(best_hp, "get") else 64
+
+    # Train the best model configuration end-to-end
     history = best_model.fit(
         X_tr,
         y_tr,
