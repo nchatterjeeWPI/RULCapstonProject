@@ -43,7 +43,7 @@ CMAPSS/
 tcn_tuning/
 lstm_tuning/
 cnn_tuning/
-
+Scratches/
 # Jupyter Notebooks
 .ipynb_checkpoints/
 *.ipynb
