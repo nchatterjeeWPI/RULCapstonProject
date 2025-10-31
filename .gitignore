@@ -43,6 +43,8 @@ CMAPSS/
 tcn_tuning/
 lstm_tuning/
 cnn_tuning/
+
+# Scratch files
 Scratches/
 # Jupyter Notebooks
 .ipynb_checkpoints/
