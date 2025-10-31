@@ -1,11 +1,7 @@
 """
 pipeline.py — High-level pipeline orchestration for RUL prediction.
 
-This module encapsulates the end-to-end pipeline steps:
-- Data preprocessing and splitting
-- Sensor analysis
-- Sequence generation
-- Model training and evaluation
+This module contains the main pipeline steps that can be called sequentially.
 """
 
 from __future__ import annotations
@@ -19,7 +15,173 @@ from sklearn.model_selection import GroupShuffleSplit
 from . import preprocess, regimes, sequences, eval as eval_module, \
     sensor_analysis
 from . import model_tcn, model_lstm, model_cnn
+from .config import make_paths, ensure_dirs, DEFAULT
+from . import download, load, explore
+from .cli import parse_args
 
+
+# ============================================================================
+# Parse Command-Line Arguments
+# ============================================================================
+
+def parse_arguments() -> Tuple[Any, Dict[str, Any]]:
+    """
+    Parse command-line arguments and create configuration.
+
+    Returns:
+        Tuple of (args, config_dict)
+    """
+    print("\n" + "=" * 70)
+    print("STEP 1: PARSE COMMAND-LINE ARGUMENTS")
+    print("=" * 70)
+
+    args = parse_args()
+
+    # Resolve configuration (CLI args override defaults)
+    arch = args.arch or DEFAULT.arch
+    use_tuning = (
+        DEFAULT.use_tuning if args.tuning is None else (args.tuning == "on"))
+    epochs = args.epochs if args.epochs is not None else DEFAULT.epochs
+    sequence_length = args.sequence_length if args.sequence_length is not None else DEFAULT.sequence_length
+    K = args.regimes_k if args.regimes_k is not None else DEFAULT.k
+    cap_val = args.cap if args.cap is not None else DEFAULT.cap
+    val_size = args.val_size if args.val_size is not None else DEFAULT.val_size
+    datasets = args.datasets or list(DEFAULT.datasets)
+    use_common_sensors = args.use_common_sensors
+
+    # Determine architectures to run
+    if arch == "all":
+        architectures = ["tcn", "lstm", "cnn"]
+    else:
+        architectures = [arch]
+
+    config = {
+        'architectures': architectures,
+        'datasets': datasets,
+        'epochs': epochs,
+        'sequence_length': sequence_length,
+        'K': K,
+        'cap_val': cap_val,
+        'val_size': val_size,
+        'use_tuning': use_tuning,
+        'use_common_sensors': use_common_sensors,
+        'run_sensor_analysis': True
+    }
+
+    print(f"Architectures: {architectures}")
+    print(f"Datasets: {datasets}")
+    print(f"Epochs: {epochs}")
+    print(f"Sequence Length: {sequence_length}")
+    print(f"Regimes (K): {K}")
+    print(f"RUL Cap: {cap_val}")
+    print(f"Val Size: {val_size}")
+    print(f"Tuning: {'ON' if use_tuning else 'OFF'}")
+    print(f"Use Common Sensors: {'YES' if use_common_sensors else 'NO'}")
+
+    return args, config
+
+
+# ============================================================================
+# Setup & Download
+# ============================================================================
+
+def setup_and_download(args: Any, config: Dict[str, Any]) -> Tuple[Any, Path]:
+    """
+    Setup paths and directories, optionally download data.
+
+    Args:
+        args: Parsed command-line arguments
+        config: Configuration dictionary
+
+    Returns:
+        Tuple of (paths, output_dir)
+    """
+    print("\n" + "=" * 70)
+    print("STEP 2: SETUP & DOWNLOAD")
+    print("=" * 70)
+
+    paths = make_paths()
+    ensure_dirs(paths)
+    output_dir = Path(args.out) if args.out else Path("./_outputs/results")
+
+    if args.download:
+        print("[INFO] Downloading datasets...")
+        download.fetch_cmaps(paths.raw_data_dir,
+                             github_token=args.github_token)
+    else:
+        print("[INFO] Skipping download")
+
+    print(f"Data directory: {paths.user_data_dir}")
+    print(f"Output directory: {output_dir}")
+
+    return paths, output_dir
+
+
+# ============================================================================
+# Load Data
+# ============================================================================
+
+def load_datasets(paths: Any, datasets: List[str]) -> Tuple[Dict, Dict, Dict]:
+    """
+    Load training, test, and RUL data.
+
+    Args:
+        paths: Paths object containing data directories
+        datasets: List of dataset names to load
+
+    Returns:
+        Tuple of (train_data, test_data, rul_data)
+    """
+    print("\n" + "=" * 70)
+    print("STEP 3: LOAD DATA")
+    print("=" * 70)
+
+    train_data, test_data, rul_data = load.load_all(paths.user_data_dir,
+                                                    datasets)
+
+    print(f"Loaded {len(train_data)} training datasets")
+    print(f"Loaded {len(test_data)} test datasets")
+    print(f"Loaded {len(rul_data)} RUL datasets")
+
+    return train_data, test_data, rul_data
+
+
+# ============================================================================
+# Basic Exploration
+# ============================================================================
+
+def explore_datasets(train_data: Dict, test_data: Dict) -> List[str]:
+    """
+    Inspect data and identify sensors to keep.
+
+    Args:
+        train_data: Dictionary of training DataFrames
+        test_data: Dictionary of test DataFrames
+
+    Returns:
+        List of sensor names to keep (or None to keep all)
+    """
+    print("\n" + "=" * 70)
+    print("STEP 4: BASIC EXPLORATION")
+    print("=" * 70)
+
+    explore.inspect(train_data)
+    missing_dupes = explore.missing_and_dupes_report(train_data, test_data)
+    print(f"Missing/Duplicate report: {missing_dupes}")
+
+    sensors_to_keep = explore.non_constant_sensors(train_data)
+    if sensors_to_keep:
+        print(f"Non-constant sensors identified: {len(sensors_to_keep)}")
+    else:
+        print("All sensors will be kept")
+        sensors_to_keep = None
+
+    return sensors_to_keep
+
+
+# ============================================================================
+# Preprocess Data
+# ============================================================================
 
 def preprocess_data(
         train_data: Dict[str, pd.DataFrame],
@@ -43,9 +205,9 @@ def preprocess_data(
     Returns:
         Tuple of (train_data, test_data) dictionaries
     """
-    print("\n" + "=" * 60)
-    print("DATA PREPROCESSING")
-    print("=" * 60)
+    print("\n" + "=" * 70)
+    print("STEP 5: PREPROCESS")
+    print("=" * 70)
 
     # Drop unwanted sensors if specified
     if sensors_to_keep:
@@ -68,7 +230,11 @@ def preprocess_data(
     return train_data, test_data
 
 
-def prepare_train_val_split(
+# ============================================================================
+# Train/Validation Split
+# ============================================================================
+
+def train_val_split(
         train_data: Dict[str, pd.DataFrame],
         datasets: List[str],
         val_size: float = 0.2,
@@ -86,9 +252,9 @@ def prepare_train_val_split(
     Returns:
         Tuple of (train_df, val_df)
     """
-    print("\n" + "=" * 60)
-    print("TRAIN/VAL SPLIT")
-    print("=" * 60)
+    print("\n" + "=" * 70)
+    print("STEP 6: TRAIN/VAL SPLIT")
+    print("=" * 70)
 
     # Add dataset tags and combine
     regimes.add_dataset_tags(train_data, {}, datasets)
@@ -116,7 +282,11 @@ def prepare_train_val_split(
     return train_df, val_df
 
 
-def apply_regime_clustering(
+# ============================================================================
+# Regime Clustering
+# ============================================================================
+
+def regime_clustering(
         train_df: pd.DataFrame,
         val_df: pd.DataFrame,
         test_data: Dict[str, pd.DataFrame],
@@ -137,9 +307,9 @@ def apply_regime_clustering(
     Returns:
         Tuple of (train_df, val_df, test_data, setting_cols, sensor_cols)
     """
-    print("\n" + "=" * 60)
-    print(f"REGIME CLUSTERING (K={K})")
-    print("=" * 60)
+    print("\n" + "=" * 70)
+    print(f"STEP 7: REGIME CLUSTERING (K={K})")
+    print("=" * 70)
 
     # Identify columns
     setting_cols = [c for c in train_df.columns if
@@ -182,29 +352,43 @@ def apply_regime_clustering(
     return train_df, val_df, test_data, setting_cols, sensor_cols
 
 
-def run_sensor_analysis(
+# ============================================================================
+# Sensor Analysis
+# ============================================================================
+
+def sensor_analysis_step(
         train_df: pd.DataFrame,
         val_df: pd.DataFrame,
         sensor_cols: List[str],
-        output_dir: Path
+        output_dir: Path,
+        run_analysis: bool = True
 ) -> Dict[str, pd.DataFrame]:
     """
-    Run comprehensive sensor importance analysis.
+    Run comprehensive sensor importance analysis (optional).
 
     Args:
         train_df: Training DataFrame
         val_df: Validation DataFrame
         sensor_cols: List of sensor column names
         output_dir: Directory to save results
+        run_analysis: Whether to run the analysis
 
     Returns:
-        Dictionary of analysis results including common sensors
+        Dictionary of analysis results (or None if skipped)
     """
+    print("\n" + "=" * 70)
+    print("STEP 8: SENSOR ANALYSIS")
+    print("=" * 70)
+
+    if not run_analysis:
+        print("[INFO] Sensor analysis skipped")
+        return None
+
     return sensor_analysis.run_full_analysis(
         train_df=train_df,
         val_df=val_df,
         sensor_cols=sensor_cols,
-        output_dir=output_dir,
+        output_dir=output_dir / "sensor_analysis",
         rul_col="RUL",
         save_results=True,
         top_n_for_common=5,
@@ -212,7 +396,11 @@ def run_sensor_analysis(
     )
 
 
-def prepare_sequences(
+# ============================================================================
+# Sequence Generation
+# ============================================================================
+
+def sequence_generation(
         train_df: pd.DataFrame,
         val_df: pd.DataFrame,
         test_data: Dict[str, pd.DataFrame],
@@ -221,8 +409,7 @@ def prepare_sequences(
         setting_cols: List[str],
         sequence_length: int,
         K: int
-) -> Tuple[
-    np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict, Dict, Dict, Dict]:
+) -> Dict[str, Any]:
     """
     Create sequences for time-series models.
 
@@ -237,12 +424,11 @@ def prepare_sequences(
         K: Number of regimes
 
     Returns:
-        Tuple of (X_train, y_train, X_val, y_val, X_test_dict, y_test_dict,
-                  engine_ids_test_dict, last_idx_map)
+        Dictionary containing all sequence data
     """
-    print("\n" + "=" * 60)
-    print(f"SEQUENCE GENERATION (length={sequence_length})")
-    print("=" * 60)
+    print("\n" + "=" * 70)
+    print(f"STEP 9: SEQUENCE GENERATION (length={sequence_length})")
+    print("=" * 70)
 
     # Add regime one-hot encoding
     sequences.add_regime_onehot(train_df, K)
@@ -269,134 +455,208 @@ def prepare_sequences(
         sequences.build_test_sequences_per_dataset(test_data, sequence_length,
                                                    feature_cols)
 
-    return X_tr, y_tr, X_val, y_val, X_te_dict, y_te_dict, engine_ids_te_dict, last_idx_map
+    return {
+        'X_train': X_tr,
+        'y_train': y_tr,
+        'X_val': X_val,
+        'y_val': y_val,
+        'X_test_dict': X_te_dict,
+        'y_test_dict': y_te_dict,
+        'engine_ids_test_dict': engine_ids_te_dict,
+        'last_idx_map': last_idx_map
+    }
 
 
-def train_model(
-        arch: str,
-        X_train: np.ndarray,
-        y_train: np.ndarray,
-        X_val: np.ndarray,
-        y_val: np.ndarray,
+# ============================================================================
+# Train Models
+# ============================================================================
+
+def train_models(
+        sequences_data: Dict[str, Any],
+        architectures: List[str],
         epochs: int,
         use_tuning: bool
-) -> Any:
+) -> Dict[str, Any]:
     """
-    Train a model with the specified architecture.
+    Train models for all specified architectures.
 
     Args:
-        arch: Architecture name ('tcn', 'lstm', or 'cnn')
-        X_train: Training sequences
-        y_train: Training labels
-        X_val: Validation sequences
-        y_val: Validation labels
+        sequences_data: Dictionary containing sequence data
+        architectures: List of architecture names
         epochs: Number of training epochs
         use_tuning: Whether to perform hyperparameter tuning
 
     Returns:
-        Trained model
+        Dictionary of trained models by architecture
     """
     print("\n" + "=" * 70)
-    print(f"TRAINING: {arch.upper()}")
+    print("STEP 10: TRAIN MODELS")
     print("=" * 70)
 
-    # Select model module
-    if arch == "tcn":
-        mod = model_tcn
-        proj = "cmapss_tcn"
-    elif arch == "lstm":
-        mod = model_lstm
-        proj = "cmapss_lstm"
-    elif arch == "cnn":
-        mod = model_cnn
-        proj = "cmapss_cnn"
-    else:
-        raise ValueError(f"Unknown architecture: {arch}")
+    X_train = sequences_data['X_train']
+    y_train = sequences_data['y_train']
+    X_val = sequences_data['X_val']
+    y_val = sequences_data['y_val']
 
-    # Train
-    if not use_tuning:
-        print(f"Training {arch.upper()} with fixed hyperparameters...")
-        model, _ = mod.train_default(X_train, y_train, X_val, y_val,
-                                     epochs=epochs)
-    else:
-        if hasattr(mod, "tune"):
-            print(f"Performing hyperparameter tuning for {arch.upper()}...")
-            best_model, best_hp, tuner, history = mod.tune(
-                X_train, y_train, X_val, y_val,
-                max_epochs=epochs,
-                directory=f"{arch}_tuning",
-                project_name=proj
-            )
-            model = best_model
-            try:
-                print("Best hyperparameters:", best_hp.values)
-            except Exception:
-                pass
+    trained_models = {}
+
+    for arch in architectures:
+        print(f"\n--- Training {arch.upper()} ---")
+
+        # Select model module
+        if arch == "tcn":
+            mod = model_tcn
+            proj = "cmapss_tcn"
+        elif arch == "lstm":
+            mod = model_lstm
+            proj = "cmapss_lstm"
+        elif arch == "cnn":
+            mod = model_cnn
+            proj = "cmapss_cnn"
         else:
-            print(
-                f"[WARN] Tuning not implemented for '{arch}'. Using fixed hyperparameters.")
-            model, _ = mod.train_default(X_train, y_train, X_val, y_val,
-                                         epochs=epochs)
+            raise ValueError(f"Unknown architecture: {arch}")
 
-    return model
+        # Train
+        if not use_tuning:
+            print(f"Training {arch.upper()} with fixed hyperparameters...")
+            model, history = mod.train_default(X_train, y_train, X_val, y_val,
+                                               epochs=epochs)
+        else:
+            if hasattr(mod, "tune"):
+                print(
+                    f"Performing hyperparameter tuning for {arch.upper()}...")
+                best_model, best_hp, tuner, history = mod.tune(
+                    X_train, y_train, X_val, y_val,
+                    max_epochs=epochs,
+                    directory=f"{arch}_tuning",
+                    project_name=proj
+                )
+                model = best_model
+                try:
+                    print("Best hyperparameters:", best_hp.values)
+                except Exception:
+                    pass
+            else:
+                print(
+                    f"[WARN] Tuning not implemented for '{arch}'. Using fixed hyperparameters.")
+                model, history = mod.train_default(X_train, y_train, X_val,
+                                                   y_val,
+                                                   epochs=epochs)
+
+        trained_models[arch] = model
+
+    return trained_models
 
 
-def evaluate_model(
-        model: Any,
-        arch: str,
-        X_test_dict: Dict,
-        y_test_dict: Dict,
-        engine_ids_test_dict: Dict,
-        last_idx_map: Dict,
+# ============================================================================
+# Test & Evaluate
+# ============================================================================
+
+def test_and_evaluate(
+        trained_models: Dict[str, Any],
+        sequences_data: Dict[str, Any],
         datasets: List[str],
         output_dir: Path
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
+) -> Dict[str, Dict[str, Any]]:
     """
-    Evaluate model and save results.
+    Evaluate all trained models and save results.
 
     Args:
-        model: Trained model
-        arch: Architecture name
-        X_test_dict: Dictionary of test sequences
-        y_test_dict: Dictionary of test labels
-        engine_ids_test_dict: Dictionary of engine IDs
-        last_idx_map: Dictionary mapping engines to their last window index
+        trained_models: Dictionary of trained models
+        sequences_data: Dictionary containing sequence data
         datasets: List of dataset names
         output_dir: Directory to save results
 
     Returns:
-        Tuple of (metrics_df, final_predictions_df)
+        Dictionary of results by architecture
     """
-    print("\n" + "=" * 60)
-    print(f"EVALUATION: {arch.upper()}")
-    print("=" * 60)
+    print("\n" + "=" * 70)
+    print("STEP 11: TEST & EVALUATE")
+    print("=" * 70)
 
-    # Per-dataset metrics
-    metrics_df = eval_module.per_dataset_metrics(model, X_test_dict,
-                                                 y_test_dict, datasets)
-    print(f"\n[{arch.upper()}] Per-dataset test metrics:")
-    print(metrics_df.to_string(index=False))
+    X_test_dict = sequences_data['X_test_dict']
+    y_test_dict = sequences_data['y_test_dict']
+    engine_ids_test_dict = sequences_data['engine_ids_test_dict']
+    last_idx_map = sequences_data['last_idx_map']
 
-    # Final engine predictions
-    final_df = eval_module.build_final_engine_table(
-        model, X_test_dict, y_test_dict, engine_ids_test_dict, last_idx_map,
-        clip_pred=True
-    )
+    all_results = {}
 
-    if not final_df.empty:
-        print(f"\n[{arch.upper()}] Top 20 engines by |prediction error|:")
-        print(final_df.head(20).to_string(index=False))
+    for arch, model in trained_models.items():
+        print(f"\n--- Evaluating {arch.upper()} ---")
 
-        # Save results
-        output_dir.mkdir(parents=True, exist_ok=True)
-        out_csv = output_dir / f"final_engine_rul_predictions_{arch}.csv"
-        final_df.to_csv(out_csv, index=False)
-        print(f"Saved: {out_csv.resolve()}")
-    else:
-        print(f"[{arch.upper()}] No final-window predictions found.")
+        # Per-dataset metrics
+        metrics_df = eval_module.per_dataset_metrics(model, X_test_dict,
+                                                     y_test_dict, datasets)
+        print(f"\n[{arch.upper()}] Per-dataset test metrics:")
+        print(metrics_df.to_string(index=False))
 
-    return metrics_df, final_df
+        # Final engine predictions
+        final_df = eval_module.build_final_engine_table(
+            model, X_test_dict, y_test_dict, engine_ids_test_dict,
+            last_idx_map,
+            clip_pred=True
+        )
 
+        if not final_df.empty:
+            print(f"\n[{arch.upper()}] Top 20 engines by |prediction error|:")
+            print(final_df.head(20).to_string(index=False))
+
+            # Save results
+            output_dir.mkdir(parents=True, exist_ok=True)
+            out_csv = output_dir / "model" / f"final_engine_rul_predictions_{arch}.csv"
+            out_csv.parent.mkdir(parents=True, exist_ok=True)
+            final_df.to_csv(out_csv, index=False)
+            print(f"Saved: {out_csv.resolve()}")
+        else:
+            print(f"[{arch.upper()}] No final-window predictions found.")
+
+        all_results[arch] = {
+            'model': model,
+            'metrics': metrics_df,
+            'final_predictions': final_df
+        }
+
+    return all_results
+
+
+# ============================================================================
+# Report Results
+# ============================================================================
+
+def report_results(
+        all_results: Dict[str, Dict[str, Any]],
+        output_dir: Path,
+        architectures: List[str]
+):
+    """
+    Generate final summary report.
+
+    Args:
+        all_results: Dictionary of results by architecture
+        output_dir: Output directory
+        architectures: List of architectures trained
+    """
+    print("\n" + "=" * 70)
+    print("STEP 12: REPORT RESULTS")
+    print("=" * 70)
+
+    # Summary comparison if multiple architectures
+    if len(architectures) > 1:
+        print("\nARCHITECTURE COMPARISON:")
+        for arch_name, results in all_results.items():
+            print(f"\n{arch_name.upper()}:")
+            print(results['metrics'].to_string(index=False))
+
+    print("\n" + "=" * 70)
+    print("PIPELINE COMPLETE")
+    print("=" * 70)
+    print(f"Results saved to: {output_dir.resolve()}")
+    print(f"Architectures trained: {list(all_results.keys())}")
+
+
+# ============================================================================
+# Legacy function for backward compatibility (if needed elsewhere)
+# ============================================================================
 
 def run_full_pipeline(
         train_data: Dict[str, pd.DataFrame],
@@ -415,81 +675,49 @@ def run_full_pipeline(
         output_dir: Path = None
 ) -> Dict[str, Dict[str, Any]]:
     """
-    Run the complete RUL prediction pipeline.
+    Run the complete RUL prediction pipeline (legacy wrapper).
 
-    Args:
-        train_data: Dictionary of training DataFrames
-        test_data: Dictionary of test DataFrames
-        rul_data: Dictionary of RUL DataFrames
-        architectures: List of architectures to train
-        datasets: List of dataset names
-        epochs: Number of training epochs
-        sequence_length: Length of sequences
-        K: Number of regimes
-        cap_val: RUL cap value
-        val_size: Validation split fraction
-        use_tuning: Whether to perform hyperparameter tuning
-        sensors_to_keep: Optional list of sensors to keep
-        run_sensor_analysis_flag: Whether to run sensor analysis
-        output_dir: Output directory for results
-
-    Returns:
-        Dictionary of results by architecture
+    This function is kept for backward compatibility but delegates to
+    the individual pipeline step functions.
     """
     if output_dir is None:
         output_dir = Path("./_outputs/results")
 
-    # 1. Preprocess data
+    # Preprocess data
     train_data, test_data = preprocess_data(
         train_data, test_data, rul_data, datasets, cap_val, sensors_to_keep
     )
 
-    # 2. Train/val split
-    train_df, val_df = prepare_train_val_split(train_data, datasets, val_size)
+    # Train/val split
+    train_df, val_df = train_val_split(train_data, datasets, val_size)
 
-    # 3. Regime clustering and normalization
-    train_df, val_df, test_data, setting_cols, sensor_cols = apply_regime_clustering(
+    # Regime clustering and normalization
+    train_df, val_df, test_data, setting_cols, sensor_cols = regime_clustering(
         train_df, val_df, test_data, datasets, K
     )
 
-    # 4. Sensor analysis (optional)
+    # Sensor analysis (optional)
     sensor_results = None
     if run_sensor_analysis_flag:
-        sensor_results = run_sensor_analysis(
-            train_df, val_df, sensor_cols, output_dir / "sensor_analysis"
+        sensor_results = sensor_analysis_step(
+            train_df, val_df, sensor_cols, output_dir, run_analysis=True
         )
 
-    # 5. Prepare sequences
-    X_tr, y_tr, X_val, y_val, X_te_dict, y_te_dict, engine_ids_te_dict, last_idx_map = \
-        prepare_sequences(
-            train_df, val_df, test_data, datasets,
-            sensor_cols, setting_cols, sequence_length, K
-        )
+    # Prepare sequences
+    sequences_data = sequence_generation(
+        train_df, val_df, test_data, datasets,
+        sensor_cols, setting_cols, sequence_length, K
+    )
 
-    # 6. Train and evaluate each architecture
-    all_results = {}
-    for arch in architectures:
-        model = train_model(arch, X_tr, y_tr, X_val, y_val, epochs, use_tuning)
+    # Train models
+    trained_models = train_models(sequences_data, architectures, epochs,
+                                  use_tuning)
 
-        metrics_df, final_df = evaluate_model(
-            model, arch, X_te_dict, y_te_dict,
-            engine_ids_te_dict, last_idx_map, datasets,
-            output_dir / "model"
-        )
+    # Evaluate
+    all_results = test_and_evaluate(trained_models, sequences_data, datasets,
+                                    output_dir)
 
-        all_results[arch] = {
-            'model': model,
-            'metrics': metrics_df,
-            'final_predictions': final_df
-        }
-
-    # 7. Summary comparison if multiple architectures
-    if len(architectures) > 1:
-        print("\n" + "=" * 70)
-        print("ARCHITECTURE COMPARISON SUMMARY")
-        print("=" * 70)
-        for arch_name, results in all_results.items():
-            print(f"\n{arch_name.upper()}:")
-            print(results['metrics'].to_string(index=False))
+    # Report
+    report_results(all_results, output_dir, architectures)
 
     return all_results
