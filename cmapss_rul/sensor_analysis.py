@@ -354,6 +354,117 @@ def plot_sensor_importance(
     plt.close()
 
 
+def ensemble_sensor_selection(
+        results: Dict[str, pd.DataFrame],
+        method_weights: Dict[str, float] = None,
+        top_n: int = 10
+) -> pd.DataFrame:
+    """
+    Select sensors using ensemble ranking across all methods.
+    
+    Args:
+        results: Dictionary of analysis results from run_full_analysis
+        method_weights: Optional weights for each method (higher = more important)
+        top_n: Number of top sensors to return
+        
+    Returns:
+        DataFrame with sensors ranked by ensemble score
+    """
+    print("\n" + "=" * 60)
+    print("ENSEMBLE SENSOR SELECTION")
+    print("=" * 60)
+    
+    # Default weights (can be tuned based on which method you trust more)
+    if method_weights is None:
+        method_weights = {
+            'rf_importance': 0.30,      # Model-based, good for actual usage
+            'perm_importance': 0.35,     # Most reliable for predictive power
+            'ablation': 0.25,            # Shows true impact
+            'correlation': 0.10          # Less weight - only linear relationships
+        }
+    
+    print(f"Method weights: {method_weights}")
+    
+    # Get all unique sensors
+    all_sensors = set()
+    for method_name, df in results.items():
+        if method_name not in ['common_sensors'] and isinstance(df, pd.DataFrame):
+            all_sensors.update(df['sensor'].tolist())
+    
+    # For each sensor, calculate normalized rank score from each method
+    ensemble_results = []
+    
+    for sensor in all_sensors:
+        scores = {}
+        
+        # Correlation
+        if 'correlation' in results:
+            corr_df = results['correlation']
+            sensor_row = corr_df[corr_df['sensor'] == sensor]
+            if not sensor_row.empty:
+                # Normalize: highest correlation gets 1.0, lowest gets 0.0
+                max_val = corr_df['abs_correlation'].max()
+                min_val = corr_df['abs_correlation'].min()
+                val = sensor_row['abs_correlation'].values[0]
+                scores['correlation'] = (val - min_val) / (max_val - min_val) if max_val > min_val else 0.5
+            else:
+                scores['correlation'] = 0.0
+        
+        # RF Importance
+        if 'rf_importance' in results:
+            rf_df = results['rf_importance']
+            sensor_row = rf_df[rf_df['sensor'] == sensor]
+            if not sensor_row.empty:
+                max_val = rf_df['importance'].max()
+                min_val = rf_df['importance'].min()
+                val = sensor_row['importance'].values[0]
+                scores['rf_importance'] = (val - min_val) / (max_val - min_val) if max_val > min_val else 0.5
+            else:
+                scores['rf_importance'] = 0.0
+        
+        # Permutation Importance
+        if 'perm_importance' in results:
+            perm_df = results['perm_importance']
+            sensor_row = perm_df[perm_df['sensor'] == sensor]
+            if not sensor_row.empty:
+                max_val = perm_df['importance_mean'].max()
+                min_val = perm_df['importance_mean'].min()
+                val = sensor_row['importance_mean'].values[0]
+                scores['perm_importance'] = (val - min_val) / (max_val - min_val) if max_val > min_val else 0.5
+            else:
+                scores['perm_importance'] = 0.0
+        
+        # Ablation
+        if 'ablation' in results:
+            abl_df = results['ablation']
+            sensor_row = abl_df[abl_df['sensor'] == sensor]
+            if not sensor_row.empty:
+                max_val = abl_df['percent_increase'].max()
+                min_val = abl_df['percent_increase'].min()
+                val = sensor_row['percent_increase'].values[0]
+                scores['ablation'] = (val - min_val) / (max_val - min_val) if max_val > min_val else 0.5
+            else:
+                scores['ablation'] = 0.0
+        
+        # Calculate weighted ensemble score
+        ensemble_score = sum(scores.get(method, 0) * method_weights.get(method, 0) 
+                           for method in method_weights.keys())
+        
+        ensemble_results.append({
+            'sensor': sensor,
+            'ensemble_score': ensemble_score,
+            **{f'{method}_score': scores.get(method, 0) for method in method_weights.keys()}
+        })
+    
+    # Sort by ensemble score
+    ensemble_df = pd.DataFrame(ensemble_results).sort_values('ensemble_score', ascending=False)
+    
+    print(f"\nTop {top_n} sensors by ensemble ranking:")
+    print(ensemble_df.head(top_n).to_string(index=False))
+    
+    return ensemble_df
+
+
 def find_common_sensors(
         results: Dict[str, pd.DataFrame],
         top_n: int = 5,
@@ -430,7 +541,8 @@ def run_full_analysis(
         rul_col: str = "RUL",
         save_results: bool = True,
         top_n_for_common: int = 5,
-        min_methods_for_common: int = 3
+        min_methods_for_common: int = 3,
+        recommended_sensor_count: int = 4
 ) -> Dict[str, Any]:
     """
     Run all sensor importance analyses.
@@ -514,6 +626,26 @@ def run_full_analysis(
     # Add common sensors to results
     results['common_sensors'] = common_sensors
 
+    # NEW: Ensemble ranking for recommended sensors
+    ensemble_df = ensemble_sensor_selection(results, top_n=10)
+    results['ensemble_ranking'] = ensemble_df
+    
+    # Extract recommended sensor list
+    recommended_sensors = ensemble_df.head(recommended_sensor_count)['sensor'].tolist()
+    results['recommended_sensors'] = recommended_sensors
+    
+    # Print recommendation
+    print("\n" + "=" * 60)
+    print("AUTOMATED SENSOR RECOMMENDATION (Ensemble Ranking)")
+    print("=" * 60)
+    print(f"\n✅ RECOMMENDED TOP {recommended_sensor_count} SENSORS:")
+    print(f"   {', '.join(recommended_sensors)}")
+    print(f"\nThese sensors provide the best combination of:")
+    print("  • Predictive power (permutation importance: 35%)")
+    print("  • Model usage (RF importance: 30%)")
+    print("  • True impact (ablation: 25%)")
+    print("  • Linear correlation (correlation: 10%)")
+
     # Save common sensors list
     if save_results and common_sensors:
         common_sensors_path = output_dir / "common_sensors.txt"
@@ -525,5 +657,21 @@ def run_full_analysis(
             for sensor in sorted(common_sensors):
                 f.write(f"{sensor}\n")
         print(f"\nSaved common sensors: {common_sensors_path}")
+    
+    # Save recommended sensors list
+    if save_results:
+        recommended_path = output_dir / "recommended_sensors.txt"
+        with open(recommended_path, 'w') as f:
+            f.write("# Recommended sensors via Ensemble Ranking\n")
+            f.write(f"# Top {recommended_sensor_count} sensors based on weighted combination of all methods\n")
+            f.write("# Weights: Permutation (35%), RF Importance (30%), Ablation (25%), Correlation (10%)\n\n")
+            for sensor in recommended_sensors:
+                f.write(f"{sensor}\n")
+        print(f"Saved recommended sensors: {recommended_path}")
+        
+        # Save full ensemble ranking
+        ensemble_csv_path = output_dir / "sensor_ensemble_ranking.csv"
+        ensemble_df.to_csv(ensemble_csv_path, index=False)
+        print(f"Saved ensemble ranking: {ensemble_csv_path}")
 
     return results

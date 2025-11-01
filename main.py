@@ -59,7 +59,7 @@ def main():
     
     # 4. Basic exploration
     sensors_to_keep = explore_datasets(train_data, test_data)
-    
+    print(sensors_to_keep)
     # 5. Preprocess
     train_data, test_data = preprocess_data(
         train_data, test_data, rul_data, 
@@ -77,11 +77,11 @@ def main():
     )
     
     # 8. Sensor analysis
-    sensor_results = sensor_analysis_step(
-        train_df, val_df, sensor_cols, 
-        output_dir, config['run_sensor_analysis']
-    )
-    print(sensor_results)
+    sensor_results = sensor_analysis_step(train_df, val_df, sensor_cols, output_dir)
+
+    if sensor_results:
+        recommended = sensor_results['recommended_sensors']
+        print(f"Using {len(recommended)} recommended sensors: {recommended}")
     
     # 9. Sequence generation
     sequences_data = sequence_generation(

@@ -361,7 +361,8 @@ def sensor_analysis_step(
         val_df: pd.DataFrame,
         sensor_cols: List[str],
         output_dir: Path,
-        run_analysis: bool = True
+        run_analysis: bool = True,
+        recommended_count: int = 4
 ) -> Dict[str, pd.DataFrame]:
     """
     Run comprehensive sensor importance analysis (optional).
@@ -372,6 +373,7 @@ def sensor_analysis_step(
         sensor_cols: List of sensor column names
         output_dir: Directory to save results
         run_analysis: Whether to run the analysis
+        recommended_count: Number of sensors to recommend
 
     Returns:
         Dictionary of analysis results (or None if skipped)
@@ -392,7 +394,8 @@ def sensor_analysis_step(
         rul_col="RUL",
         save_results=True,
         top_n_for_common=5,
-        min_methods_for_common=3
+        min_methods_for_common=3,
+        recommended_sensor_count=recommended_count
     )
 
 
