@@ -1,3 +1,4 @@
+cuml
 numpy>=1.23.5,<2.3.0
 scipy>=1.11,<1.14
 scikit-learn>=1.3,<1.6

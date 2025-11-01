@@ -14,11 +14,18 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.inspection import permutation_importance
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 import matplotlib.pyplot as plt
-import seaborn as sns
+
+# Force CPU-based Random Forest
+USE_GPU_RF = False
+print("[INFO] Using CPU-based Random Forest (scikit-learn)")
+
+
+# import seaborn as sns
 
 
 def correlation_analysis(
@@ -91,11 +98,16 @@ def random_forest_importance(
     y_val = val_df[rul_col].values
 
     print(f"Training Random Forest with {n_estimators} trees...")
+    print("[INFO] Using CPU-based Random Forest (scikit-learn)")
+    
     rf = RandomForestRegressor(
         n_estimators=n_estimators,
         random_state=random_state,
-        n_jobs=-1
+        n_jobs=-1,  # Use all CPU cores
+        max_depth=15,
+        min_samples_split=10
     )
+
     rf.fit(X_train, y_train)
 
     # Predictions and metrics
@@ -156,8 +168,16 @@ def permutation_importance_analysis(
     y_val = val_df[rul_col].values
 
     print("Training model...")
-    rf = RandomForestRegressor(n_estimators=50, random_state=random_state,
-                               n_jobs=-1)
+    print("[INFO] Using CPU-based Random Forest (scikit-learn)")
+    
+    rf = RandomForestRegressor(
+        n_estimators=50,
+        random_state=random_state,
+        n_jobs=-1,
+        max_depth=15,
+        min_samples_split=10
+    )
+
     rf.fit(X_train, y_train)
 
     print(f"Computing permutation importance (n_repeats={n_repeats})...")
@@ -222,8 +242,16 @@ def ablation_study(
 
     # Baseline with all sensors
     print("Training baseline model with all sensors...")
-    rf_baseline = RandomForestRegressor(n_estimators=50,
-                                        random_state=random_state, n_jobs=-1)
+    print("[INFO] Using CPU-based Random Forest (scikit-learn)")
+    
+    rf_baseline = RandomForestRegressor(
+        n_estimators=50,
+        random_state=random_state,
+        n_jobs=-1,
+        max_depth=15,
+        min_samples_split=10
+    )
+
     rf_baseline.fit(X_train, y_train)
     baseline_rmse = np.sqrt(
         mean_squared_error(y_val, rf_baseline.predict(X_val)))
@@ -246,8 +274,14 @@ def ablation_study(
         X_train_ablated = train_df[cols_without].values
         X_val_ablated = val_df[cols_without].values
 
-        rf = RandomForestRegressor(n_estimators=50, random_state=random_state,
-                                   n_jobs=-1)
+        rf = RandomForestRegressor(
+            n_estimators=50,
+            random_state=random_state,
+            n_jobs=-1,
+            max_depth=15,
+            min_samples_split=10
+        )
+
         rf.fit(X_train_ablated, y_train)
         rmse = np.sqrt(mean_squared_error(y_val, rf.predict(X_val_ablated)))
 
@@ -342,9 +376,12 @@ def find_common_sensors(
 
     # Extract top N sensors from each method
     top_sensors = {
-        'correlation': set(results['correlation'].head(top_n)['sensor'].tolist()),
-        'rf_importance': set(results['rf_importance'].head(top_n)['sensor'].tolist()),
-        'perm_importance': set(results['perm_importance'].head(top_n)['sensor'].tolist()),
+        'correlation': set(
+            results['correlation'].head(top_n)['sensor'].tolist()),
+        'rf_importance': set(
+            results['rf_importance'].head(top_n)['sensor'].tolist()),
+        'perm_importance': set(
+            results['perm_importance'].head(top_n)['sensor'].tolist()),
         'ablation': set(results['ablation'].head(top_n)['sensor'].tolist())
     }
 
@@ -367,15 +404,18 @@ def find_common_sensors(
     else:
         print("None")
 
-    print(f"\nSensors appearing in top {top_n} of at least {min_methods} methods:")
+    print(
+        f"\nSensors appearing in top {top_n} of at least {min_methods} methods:")
     if common_sensors:
         print(", ".join(sorted(common_sensors)))
-        
+
         # Show which methods each common sensor appears in
         print("\nDetailed breakdown:")
         for sensor in sorted(common_sensors):
-            methods = [name for name, sensors in top_sensors.items() if sensor in sensors]
-            print(f"  {sensor}: {sensor_counts[sensor]}/4 methods ({', '.join(methods)})")
+            methods = [name for name, sensors in top_sensors.items() if
+                       sensor in sensors]
+            print(
+                f"  {sensor}: {sensor_counts[sensor]}/4 methods ({', '.join(methods)})")
     else:
         print("None")
 
@@ -414,6 +454,7 @@ def run_full_analysis(
     print(f"Analyzing {len(sensor_cols)} sensors")
     print(f"Training samples: {len(train_df)}")
     print(f"Validation samples: {len(val_df)}")
+    print("GPU-accelerated Random Forest: DISABLED (using scikit-learn CPU)")
 
     results = {}
 
@@ -465,20 +506,22 @@ def run_full_analysis(
 
     # Find common sensors
     common_sensors = find_common_sensors(
-        results, 
+        results,
         top_n=top_n_for_common,
         min_methods=min_methods_for_common
     )
-    
+
     # Add common sensors to results
     results['common_sensors'] = common_sensors
-    
+
     # Save common sensors list
     if save_results and common_sensors:
         common_sensors_path = output_dir / "common_sensors.txt"
         with open(common_sensors_path, 'w') as f:
-            f.write("# Common sensors appearing in top rankings across multiple methods\n")
-            f.write(f"# Criteria: Top {top_n_for_common} in at least {min_methods_for_common} methods\n\n")
+            f.write(
+                "# Common sensors appearing in top rankings across multiple methods\n")
+            f.write(
+                f"# Criteria: Top {top_n_for_common} in at least {min_methods_for_common} methods\n\n")
             for sensor in sorted(common_sensors):
                 f.write(f"{sensor}\n")
         print(f"\nSaved common sensors: {common_sensors_path}")

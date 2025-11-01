@@ -16,10 +16,19 @@ This script orchestrates the high-level workflow:
 12. Report results
 """
 
-from pathlib import Path
+import tensorflow as tf
 
-from cmapss_rul.config import make_paths, ensure_dirs, DEFAULT
-from cmapss_rul import download, load, explore
+# Configure TensorFlow memory growth to prevent allocation warnings
+gpus = tf.config.list_physical_devices('GPU')
+if gpus:
+    try:
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        print(f"[INFO] Enabled memory growth for {len(gpus)} GPU(s)")
+    except RuntimeError as e:
+        print(f"[WARNING] Could not enable memory growth: {e}")
+
+
 from cmapss_rul.pipeline import (
     parse_arguments,
     setup_and_download,
@@ -67,11 +76,12 @@ def main():
         train_df, val_df, test_data, config['datasets'], config['K']
     )
     
-    # 8. Sensor analysis (optional)
+    # 8. Sensor analysis
     sensor_results = sensor_analysis_step(
         train_df, val_df, sensor_cols, 
         output_dir, config['run_sensor_analysis']
     )
+    print(sensor_results)
     
     # 9. Sequence generation
     sequences_data = sequence_generation(
