@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Outputs and Results
+_outputs/
+*.csv
+*.png
+*.jpg
+*.jpeg
+*.pdf
+
+# Data files (if large)
+CMAPSS/
+*.zip
+*.txt.gz
+
+# Model files
+*.h5
+*.hdf5
+*.keras
+*.pb
+*.ckpt
+*.pth
+
+# Tuning directories
+tcn_tuning/
+lstm_tuning/
+cnn_tuning/
+
+# Scratch files
+Scratches/
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
