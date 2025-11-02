@@ -59,7 +59,7 @@ def main():
     
     # 4. Basic exploration
     sensors_to_keep = explore_datasets(train_data, test_data)
-    print(sensors_to_keep)
+    # print(sensors_to_keep)
     # 5. Preprocess
     train_data, test_data = preprocess_data(
         train_data, test_data, rul_data, 
