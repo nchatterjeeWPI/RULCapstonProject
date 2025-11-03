@@ -8,12 +8,13 @@ This script orchestrates the high-level workflow:
 4. Basic exploration
 5. Preprocess
 6. Train/val split
-7. Regime clustering
-8. Sensor analysis (optional)
-9. Sequence generation
-10. Train models
-11. Test & evaluate
-12. Report results
+7. Identify sensor columns
+8. Sensor analysis (feature selection)
+9. Regime clustering
+10. Sequence generation
+11. Train models
+12. Test & evaluate
+13. Report results
 """
 
 import tensorflow as tf
@@ -38,6 +39,7 @@ from cmapss_rul.pipeline import (
     train_val_split,
     regime_clustering,
     sensor_analysis_step,
+    apply_sensor_selection,
     sequence_generation,
     train_models,
     test_and_evaluate,
@@ -70,38 +72,49 @@ def main():
     train_df, val_df = train_val_split(
         train_data, config['datasets'], config['val_size']
     )
+
+    # 7. Identify sensor columns early
+    sensor_cols = [c for c in train_df.columns if c.startswith("sensor_")]
+    if not sensor_cols:
+        raise RuntimeError("No sensor* columns found.")
+    print(f"\n[INFO] Identified {len(sensor_cols)} sensor columns")
+
+    # 8. Sensor analysis (optional - controlled by --use-common-sensors flag)
+    sensor_results = sensor_analysis_step(
+        train_df, val_df, sensor_cols, output_dir,
+        run_analysis=config['run_sensor_analysis']
+    )
     
-    # 7. Regime clustering
+    # Apply sensor selection results
+    train_df, val_df, test_data, sensor_cols = apply_sensor_selection(
+        train_df, val_df, test_data, config['datasets'], 
+        sensor_results, sensor_cols
+    )
+
+    # 9. Regime clustering (now uses optimized sensor set)
     train_df, val_df, test_data, setting_cols, sensor_cols = regime_clustering(
         train_df, val_df, test_data, config['datasets'], config['K']
     )
-    
-    # 8. Sensor analysis
-    sensor_results = sensor_analysis_step(train_df, val_df, sensor_cols, output_dir)
 
-    if sensor_results:
-        recommended = sensor_results['recommended_sensors']
-        print(f"Using {len(recommended)} recommended sensors: {recommended}")
-    
-    # 9. Sequence generation
+    # 10. Sequence generation
     sequences_data = sequence_generation(
         train_df, val_df, test_data, config['datasets'],
         sensor_cols, setting_cols, config['sequence_length'], config['K']
     )
-    
-    # 10. Train models
+
+    # 11. Train models
     trained_models = train_models(
         sequences_data, config['architectures'], 
         config['epochs'], config['use_tuning']
     )
-    
-    # 11. Test & evaluate
+
+    # 12. Test & evaluate
     all_results = test_and_evaluate(
         trained_models, sequences_data, 
         config['datasets'], output_dir
     )
-    
-    # 12. Report results
+
+    # 13. Report results
     report_results(all_results, output_dir, config['architectures'])
 
 

@@ -5,7 +5,7 @@ This module contains the main pipeline steps that can be called sequentially.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Any, Optional
 from pathlib import Path
 
 import numpy as np
@@ -65,7 +65,7 @@ def parse_arguments() -> Tuple[Any, Dict[str, Any]]:
         'val_size': val_size,
         'use_tuning': use_tuning,
         'use_common_sensors': use_common_sensors,
-        'run_sensor_analysis': True
+        'run_sensor_analysis': use_common_sensors
     }
 
     print(f"Architectures: {architectures}")
@@ -77,6 +77,7 @@ def parse_arguments() -> Tuple[Any, Dict[str, Any]]:
     print(f"Val Size: {val_size}")
     print(f"Tuning: {'ON' if use_tuning else 'OFF'}")
     print(f"Use Common Sensors: {'YES' if use_common_sensors else 'NO'}")
+    print(f"Run Sensor Analysis: {'YES' if use_common_sensors else 'NO'}")
 
     return args, config
 
@@ -295,7 +296,7 @@ def regime_clustering(
 ) -> Tuple[
     pd.DataFrame, pd.DataFrame, Dict[str, pd.DataFrame], List[str], List[str]]:
     """
-    Apply regime clustering and normalization.
+    Apply regime clustering and normalization and applies sensor selection.
 
     Args:
         train_df: Training DataFrame
@@ -308,7 +309,7 @@ def regime_clustering(
         Tuple of (train_df, val_df, test_data, setting_cols, sensor_cols)
     """
     print("\n" + "=" * 70)
-    print(f"STEP 7: REGIME CLUSTERING (K={K})")
+    print(f"STEP 9: REGIME CLUSTERING (K={K})")
     print("=" * 70)
 
     # Identify columns
@@ -353,6 +354,55 @@ def regime_clustering(
 
 
 # ============================================================================
+# Apply Sensor Selection
+# ============================================================================
+
+def apply_sensor_selection(
+        train_df: pd.DataFrame,
+        val_df: pd.DataFrame,
+        test_data: Dict[str, pd.DataFrame],
+        datasets: List[str],
+        sensor_results: Optional[Dict],
+        sensor_cols: List[str]
+) -> Tuple[pd.DataFrame, pd.DataFrame, Dict[str, pd.DataFrame], List[str]]:
+    """
+    Apply sensor selection results to filter dataframes.
+    
+    If sensor_results contains recommended sensors, filters all dataframes
+    to only include those sensors. Otherwise, keeps all sensors.
+    
+    Args:
+        train_df: Training DataFrame
+        val_df: Validation DataFrame
+        test_data: Dictionary of test DataFrames
+        datasets: List of dataset names
+        sensor_results: Results from sensor analysis (or None)
+        sensor_cols: Original list of sensor columns
+        
+    Returns:
+        Tuple of (train_df, val_df, test_data, filtered_sensor_cols)
+    """
+    if sensor_results and 'recommended_sensors' in sensor_results:
+        recommended = sensor_results['recommended_sensors']
+        print(f"[INFO] Reducing from {len(sensor_cols)} to {len(recommended)} recommended sensors")
+        
+        # Filter dataframes to only include recommended sensors
+        other_cols = [c for c in train_df.columns if not c.startswith("sensor_")]
+        train_df = train_df[other_cols + recommended]
+        val_df = val_df[other_cols + recommended]
+
+        for fd in datasets:
+            test_other_cols = [c for c in test_data[fd].columns if
+                               not c.startswith("sensor_")]
+            test_data[fd] = test_data[fd][test_other_cols + recommended]
+        
+        return train_df, val_df, test_data, recommended
+    else:
+        print(f"[INFO] Using all {len(sensor_cols)} sensors")
+        return train_df, val_df, test_data, sensor_cols
+
+
+# ============================================================================
 # Sensor Analysis
 # ============================================================================
 
@@ -379,7 +429,7 @@ def sensor_analysis_step(
         Dictionary of analysis results (or None if skipped)
     """
     print("\n" + "=" * 70)
-    print("STEP 8: SENSOR ANALYSIS")
+    print("STEP 8: SENSOR ANALYSIS (FEATURE SELECTION)")
     print("=" * 70)
 
     if not run_analysis:
@@ -430,7 +480,7 @@ def sequence_generation(
         Dictionary containing all sequence data
     """
     print("\n" + "=" * 70)
-    print(f"STEP 9: SEQUENCE GENERATION (length={sequence_length})")
+    print(f"STEP 10: SEQUENCE GENERATION (length={sequence_length})")
     print("=" * 70)
 
     # Add regime one-hot encoding
@@ -493,7 +543,7 @@ def train_models(
         Dictionary of trained models by architecture
     """
     print("\n" + "=" * 70)
-    print("STEP 10: TRAIN MODELS")
+    print("STEP 11: TRAIN MODELS")
     print("=" * 70)
 
     X_train = sequences_data['X_train']
@@ -574,7 +624,7 @@ def test_and_evaluate(
         Dictionary of results by architecture
     """
     print("\n" + "=" * 70)
-    print("STEP 11: TEST & EVALUATE")
+    print("STEP 12: TEST & EVALUATE")
     print("=" * 70)
 
     X_test_dict = sequences_data['X_test_dict']
@@ -640,7 +690,7 @@ def report_results(
         architectures: List of architectures trained
     """
     print("\n" + "=" * 70)
-    print("STEP 12: REPORT RESULTS")
+    print("STEP 13: REPORT RESULTS")
     print("=" * 70)
 
     # Summary comparison if multiple architectures
@@ -698,13 +748,18 @@ def run_full_pipeline(
     train_df, val_df, test_data, setting_cols, sensor_cols = regime_clustering(
         train_df, val_df, test_data, datasets, K
     )
-
+    
     # Sensor analysis (optional)
     sensor_results = None
     if run_sensor_analysis_flag:
         sensor_results = sensor_analysis_step(
             train_df, val_df, sensor_cols, output_dir, run_analysis=True
         )
+    
+    # Apply sensor selection
+    train_df, val_df, test_data, sensor_cols = apply_sensor_selection(
+        train_df, val_df, test_data, datasets, sensor_results, sensor_cols
+    )
 
     # Prepare sequences
     sequences_data = sequence_generation(

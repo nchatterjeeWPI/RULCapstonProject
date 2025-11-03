@@ -51,7 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
     
     # Sensor selection
     parser.add_argument("--use-common-sensors", action="store_true",
-                        help="Use only common sensors identified by importance analysis")
+                        help="Run sensor analysis and use only top recommended sensors for feature selection")
 
     return parser
 
@@ -70,5 +70,5 @@ def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
 
 
 if __name__ == "__main__":
-    # make this file discoverable if run directly (python cli.py)
+    # file discoverable if run directly (python cli.py)
     build_parser().print_help()
