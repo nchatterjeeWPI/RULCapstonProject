@@ -38,6 +38,7 @@ CMAPSS/
 *.pb
 *.ckpt
 *.pth
+*.json
 
 # Tuning directories
 tcn_tuning/

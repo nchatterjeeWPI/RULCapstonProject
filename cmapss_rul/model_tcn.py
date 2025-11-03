@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 from typing import Optional, Tuple
+import shutil
+from pathlib import Path
 
 import numpy as np
 from tensorflow.keras import Model, Input
@@ -31,6 +33,13 @@ from tensorflow.keras.layers import (
 )
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, Callback
+
+# Keras Tuner import (only needed if tune() is called)
+try:
+    import keras_tuner as kt
+    KERAS_TUNER_AVAILABLE = True
+except ImportError:
+    KERAS_TUNER_AVAILABLE = False
 
 
 # ===============================================================
@@ -182,7 +191,41 @@ def train_default(
 
 
 # ===============================================================
-# 4) OPTIONAL HYPERPARAMETER TUNING (KerasTuner Hyperband)
+# 4) HYPERPARAMETER TUNING HELPER - Build model from hp object
+# ===============================================================
+def build_tcn_model(hp):
+    """
+    Build a TCN model with hyperparameters from Keras Tuner.
+    
+    Args:
+        hp: HyperParameters object from Keras Tuner
+        
+    Returns:
+        Compiled Keras Model
+    """
+    # Define hyperparameter search space
+    filters = hp.Int("filters", min_value=32, max_value=64, step=16)
+    blocks = hp.Int("blocks", min_value=3, max_value=5)
+    kernel_size = hp.Choice("kernel_size", values=[3, 5, 7])
+    dropout = hp.Float("dropout", min_value=0.1, max_value=0.4, step=0.1)
+    lr = hp.Float("lr", min_value=1e-4, max_value=1e-2, sampling="log")
+    
+    # Get input shape from hp (set during tuner.search)
+    input_shape = hp.get("input_shape")
+    
+    # Build model using the build() function
+    return build(
+        input_shape=input_shape,
+        filters=filters,
+        blocks=blocks,
+        kernel_size=kernel_size,
+        dropout=dropout,
+        lr=lr
+    )
+
+
+# ===============================================================
+# 5) OPTIONAL HYPERPARAMETER TUNING (KerasTuner Hyperband)
 # ===============================================================
 # Searches over key TCN hyperparameters (filters, blocks, kernel_size, dropout, lr).
 # Uses Hyperband to allocate training budget efficiently. Returns:
@@ -191,78 +234,97 @@ def train_default(
 #   tuner:      the tuner instance (for inspection / dashboards)
 #   history:    training history of best_model
 # ---------------------------------------------------------------
-def tune(
-    X_tr: np.ndarray,
-    y_tr: np.ndarray,
-    X_val: np.ndarray,
-    y_val: np.ndarray,
-    max_epochs: int = 60,
-    directory: str = "tcn_tuning",
-    project_name: str = "cmapss_tcn",
-):
+def tune(X_tr, y_tr, X_val, y_val, max_epochs=50, directory="tcn_tuning", project_name="cmapss_tcn"):
     """
-    Optional Hyperband tuning for TCN. Returns (best_model, best_hp, tuner, history)
+    Hyperparameter tuning using Keras Tuner (Hyperband).
+    Returns: (best_model, best_hyperparameters, tuner, history)
     """
-    try:
-        import keras_tuner as kt
-    except Exception as e:
-        # Friendly error if keras-tuner isn't installed
-        raise ImportError("keras-tuner is required for tune(); pip install keras-tuner") from e
+    if not KERAS_TUNER_AVAILABLE:
+        raise ImportError("keras-tuner is required for hyperparameter tuning. Install it with: pip install keras-tuner")
+    
+    # Clear any existing checkpoints that might cause shape conflicts
+    tuning_dir = Path(directory) / project_name
+    if tuning_dir.exists():
+        print(f"[INFO] Cleaning up previous tuning directory: {tuning_dir}")
+        shutil.rmtree(tuning_dir)
 
-    # Define how to build a model from a set of hyperparameters
-    def build_from_hp(hp):
-        filters = hp.Choice("filters", [32, 48, 64, 96])
-        blocks = hp.Int("blocks", min_value=3, max_value=6, step=1)
-        kernel_size = hp.Choice("kernel_size", [3, 5, 7])
-        dropout = hp.Float("dropout", 0.1, 0.5, step=0.1)
-        lr = hp.Float("lr", 1e-4, 3e-3, sampling="log")
+    # Store input_shape outside the hyperparameter space
+    input_shape = X_tr.shape[1:]
+    
+    # Create a wrapper function that uses the captured input_shape
+    def build_model_wrapper(hp):
+        # Define hyperparameter search space
+        filters = hp.Int("filters", min_value=32, max_value=64, step=16)
+        blocks = hp.Int("blocks", min_value=3, max_value=5)
+        kernel_size = hp.Choice("kernel_size", values=[3, 5, 7])
+        dropout = hp.Float("dropout", min_value=0.1, max_value=0.4, step=0.1)
+        lr = hp.Float("lr", min_value=1e-4, max_value=1e-2, sampling="log")
+        
+        # Build model directly with the captured input_shape
         return build(
-            input_shape=X_tr.shape[1:],
+            input_shape=input_shape,
             filters=filters,
             blocks=blocks,
             kernel_size=kernel_size,
             dropout=dropout,
-            lr=lr,
+            lr=lr
         )
 
-    # Set up a Hyperband tuner to minimize validation loss
     tuner = kt.Hyperband(
-        hypermodel=build_from_hp,
+        build_model_wrapper,
         objective="val_loss",
         max_epochs=max_epochs,
         factor=3,
         directory=directory,
         project_name=project_name,
+        overwrite=True,  # Start fresh to avoid shape conflicts
+        hyperband_iterations=1 # Reduced from 2 for saving memory
     )
-
-    # Still keep early stopping in searches to avoid wasting time
-    es = EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True)
-
-    # Run the search over hyperparameters
+    
+    tuner = kt.RandomSearch(
+        build_model_wrapper,
+        objective="val_loss",
+        max_trials=20,  # Limit number of trials
+        executions_per_trial=1,
+        directory=directory,
+        project_name=project_name,
+        overwrite=True
+    )
+    early_stop = EarlyStopping(
+        monitor="val_loss",
+        patience=10,
+        restore_best_weights=True
+    )
+    
+    print(f"[INFO] Starting hyperparameter search...")
     tuner.search(
-        X_tr,
-        y_tr,
+        X_tr, y_tr,
         validation_data=(X_val, y_val),
         epochs=max_epochs,
-        callbacks=[es],
-        verbose=1,
+        callbacks=[early_stop],
+        verbose=1
     )
-
-    # Retrieve the best hyperparameters and build the corresponding model
-    best_hp = tuner.get_best_hyperparameters(1)[0]
-    best_model = build_from_hp(best_hp)
-
-    # Optional: allow batch_size to be part of HPs (fallback to 64 if not set)
-    bs = best_hp.get("batch_size", 64) if hasattr(best_hp, "get") else 64
-
-    # Train the best model configuration end-to-end
-    history = best_model.fit(
-        X_tr,
-        y_tr,
+    
+    best_hp = tuner.get_best_hyperparameters(num_trials=1)[0]
+    best_model = tuner.get_best_models(num_models=1)[0]
+    
+    # Retrain best model from scratch to get full history
+    print("\n[INFO] Retraining best model with full epochs...")
+    # Build model directly using best hyperparameters
+    final_model = build(
+        input_shape=input_shape,
+        filters=best_hp.get("filters"),
+        blocks=best_hp.get("blocks"),
+        kernel_size=best_hp.get("kernel_size"),
+        dropout=best_hp.get("dropout"),
+        lr=best_hp.get("lr")
+    )
+    history = final_model.fit(
+        X_tr, y_tr,
         validation_data=(X_val, y_val),
         epochs=max_epochs,
-        batch_size=bs,
-        callbacks=[es],
-        verbose=1,
+        callbacks=[early_stop],
+        verbose=1
     )
-    return best_model, best_hp, tuner, history
+    
+    return final_model, best_hp, tuner, history
