@@ -18,6 +18,7 @@ from . import model_tcn, model_lstm, model_cnn
 from .config import make_paths, ensure_dirs, DEFAULT
 from . import download, load, explore
 from .cli import parse_args
+from . import uncertainty
 
 
 # ============================================================================
@@ -48,6 +49,14 @@ def parse_arguments() -> Tuple[Any, Dict[str, Any]]:
     val_size = args.val_size if args.val_size is not None else DEFAULT.val_size
     datasets = args.datasets or list(DEFAULT.datasets)
     use_common_sensors = args.use_common_sensors
+    unc_method = getattr(args, "uncertainty", None) or DEFAULT.uncertainty_method
+    alpha = getattr(args, "alpha", None)
+    if alpha is None:
+        alpha = DEFAULT.alpha
+    mc_samples = getattr(args, "mc_samples", None)
+    if mc_samples is None:
+        mc_samples = DEFAULT.mc_samples
+    clip_pred = getattr(DEFAULT, "clip_pred", True)
 
     # Determine architectures to run
     if arch == "all":
@@ -65,7 +74,11 @@ def parse_arguments() -> Tuple[Any, Dict[str, Any]]:
         'val_size': val_size,
         'use_tuning': use_tuning,
         'use_common_sensors': use_common_sensors,
-        'run_sensor_analysis': use_common_sensors
+        'run_sensor_analysis': use_common_sensors,
+        'uncertainty_method': unc_method,
+        'alpha': float(alpha),
+        'mc_samples': int(mc_samples),
+        'clip_pred': bool(clip_pred),
     }
 
     print(f"Architectures: {architectures}")
@@ -78,6 +91,7 @@ def parse_arguments() -> Tuple[Any, Dict[str, Any]]:
     print(f"Tuning: {'ON' if use_tuning else 'OFF'}")
     print(f"Use Common Sensors: {'YES' if use_common_sensors else 'NO'}")
     print(f"Run Sensor Analysis: {'YES' if use_common_sensors else 'NO'}")
+    print(f"Uncertainty: method={unc_method} | alpha={alpha} | mc_samples={mc_samples} | clip_pred={clip_pred}")
 
     return args, config
 
@@ -609,7 +623,8 @@ def test_and_evaluate(
         trained_models: Dict[str, Any],
         sequences_data: Dict[str, Any],
         datasets: List[str],
-        output_dir: Path
+        output_dir: Path,
+        config: Dict[str, Any]
 ) -> Dict[str, Dict[str, Any]]:
     """
     Evaluate all trained models and save results.
@@ -632,36 +647,137 @@ def test_and_evaluate(
     engine_ids_test_dict = sequences_data['engine_ids_test_dict']
     last_idx_map = sequences_data['last_idx_map']
 
+    # For conformal calibration
+    X_val = sequences_data['X_val']
+    y_val = sequences_data['y_val']
+
+    unc_method = config.get('uncertainty_method', 'none')
+    alpha = float(config.get('alpha', 0.10))
+    mc_T = int(config.get('mc_samples', 50))
+    clip_pred = bool(config.get('clip_pred', True))
+
+    figs_dir = output_dir / "figures"
+    model_dir = output_dir / "model"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    figs_dir.mkdir(parents=True, exist_ok=True)
+
     all_results = {}
 
     for arch, model in trained_models.items():
         print(f"\n--- Evaluating {arch.upper()} ---")
 
-        # Per-dataset metrics
+        # 1) Per-dataset metrics
         metrics_df = eval_module.per_dataset_metrics(model, X_test_dict,
                                                      y_test_dict, datasets)
         print(f"\n[{arch.upper()}] Per-dataset test metrics:")
         print(metrics_df.to_string(index=False))
 
-        # Final engine predictions
+        # 2) Calibrate conformal q-hat
+        qhat = None
+        if unc_method == "conformal":
+            print(f"[{arch.upper()}][UNCERTAINTY] Calibrating conformal intervals (alpha={alpha})...")
+            qhat = uncertainty.conformal_calibrate(model, X_val, y_val, alpha=alpha, clip_pred=clip_pred)
+            print(f"[{arch.upper()}][UNCERTAINTY] qhat = {qhat:.4f}")
+
+        # 3) Final engine predictions
+        final_rows = []
+        for fd, Xte in X_test_dict.items():
+            if Xte is None or Xte.shape[0] == 0 or fd not in last_idx_map:
+                continue
+
+            final_idxs = sorted(last_idx_map[fd].values())
+
+            if unc_method == "mc":
+                # Memory-safe: MC only on final windows
+                print(f"[{arch.upper()}][UNCERTAINTY] MC-dropout on final windows ({mc_T} samples) for {fd}...")
+                Xte_final = Xte[final_idxs]
+                samples = uncertainty.mc_predict(model, Xte_final, T=mc_T)  # (T, Nfinal)
+                mean, lo_fin, hi_fin = uncertainty.mc_interval_from_samples(samples, alpha=alpha, clip_pred=clip_pred)
+                yhat_fin = np.clip(mean, 0, None) if clip_pred else mean
+            else:
+                # Deterministic predictions on all windows; slice final
+                yhat_all = model.predict(Xte, verbose=0).reshape(-1)
+                if clip_pred:
+                    yhat_all = np.clip(yhat_all, 0, None)
+                yhat_fin = yhat_all[final_idxs]
+                if unc_method == "conformal" and qhat is not None:
+                    lo_all, hi_all = uncertainty.conformal_interval(yhat_all, qhat, clip_pred=clip_pred)
+                    lo_fin, hi_fin = lo_all[final_idxs], hi_all[final_idxs]
+                else:
+                    lo_fin = hi_fin = None
+
+            ytrue_all = y_test_dict[fd]
+            eids_all = engine_ids_test_dict[fd]
+            for j, idx in enumerate(final_idxs):
+                y_true = float(ytrue_all[idx])
+                y_pred = float(yhat_fin[j])
+                row = {
+                    "dataset": fd,
+                    "engine_id": int(eids_all[idx]),
+                    "y_true": y_true,
+                    "y_pred": y_pred,
+                    "y_pred_lo": float(lo_fin[j]) if lo_fin is not None else None,
+                    "y_pred_hi": float(hi_fin[j]) if hi_fin is not None else None,
+                }
+                final_rows.append(row)
+
+        final_df = pd.DataFrame(final_rows)
+
+        # 4) Save per-arch final-engine CSV
+        if not final_df.empty:
+            out_csv = model_dir / f"final_engine_rul_predictions_{arch}.csv"
+            out_csv.parent.mkdir(parents=True, exist_ok=True)
+            final_df.to_csv(out_csv, index=False)
+            print(f"Saved: {out_csv.resolve()}")
+        else:
+            print(f"[{arch.upper()}] No final-window predictions found.")
+
+        # 5) Plots (overall + per-dataset) — SVG for zoomability
+        if not final_df.empty:
+            all_svg = figs_dir / f"rul_bands_final_all_{arch}.svg"
+            eval_module.plot_final_engine_bands(final_df, str(all_svg))
+            for fd in sorted(final_df["dataset"].unique()):
+                fd_svg = figs_dir / f"rul_bands_final_{fd}_{arch}.svg"
+                eval_module.plot_final_engine_bands(final_df, str(fd_svg), dataset=fd)
+
+        # 6) Coverage + interval-width summaries (if bands exist)
+        has_lo = "y_pred_lo" in final_df.columns
+        has_hi = "y_pred_hi" in final_df.columns
+        some_lo = has_lo and pd.to_numeric(final_df["y_pred_lo"], errors="coerce").notna().any()
+        some_hi = has_hi and pd.to_numeric(final_df["y_pred_hi"], errors="coerce").notna().any()
+        if has_lo and has_hi and some_lo and some_hi:
+            cov_df = eval_module.interval_accuracy_summary(final_df)
+            cov_csv = model_dir / f"interval_coverage_summary_{arch}.csv"
+            cov_df.to_csv(cov_csv, index=False)
+            print(f"\n[{arch.upper()}] Interval coverage summary:")
+            print(cov_df.to_string(index=False))
+
+            final_df["interval_width"] = (
+                    pd.to_numeric(final_df["y_pred_hi"], errors="coerce")
+                    - pd.to_numeric(final_df["y_pred_lo"], errors="coerce")
+            )
+            by_ds = final_df.groupby("dataset")["interval_width"].agg(["count", "mean", "median"]).reset_index()
+            print(f"\n[{arch.upper()}] Interval width summary:")
+            print(by_ds.to_string(index=False))
+        else:
+            print(f"[{arch.upper()}] No usable interval bounds found; plots saved (bands may be absent).")
+
+
+
+
         final_df = eval_module.build_final_engine_table(
             model, X_test_dict, y_test_dict, engine_ids_test_dict,
             last_idx_map,
             clip_pred=True
         )
 
+        # After final_df is built in the new test_and_evaluate:
         if not final_df.empty:
+            tmp = final_df.copy()
+            tmp["abs_delta"] = (tmp["y_pred"] - tmp["y_true"]).abs()
             print(f"\n[{arch.upper()}] Top 20 engines by |prediction error|:")
-            print(final_df.head(20).to_string(index=False))
+            print(tmp.sort_values("abs_delta", ascending=False).head(20).to_string(index=False))
 
-            # Save results
-            output_dir.mkdir(parents=True, exist_ok=True)
-            out_csv = output_dir / "model" / f"final_engine_rul_predictions_{arch}.csv"
-            out_csv.parent.mkdir(parents=True, exist_ok=True)
-            final_df.to_csv(out_csv, index=False)
-            print(f"Saved: {out_csv.resolve()}")
-        else:
-            print(f"[{arch.upper()}] No final-window predictions found.")
 
         all_results[arch] = {
             'model': model,

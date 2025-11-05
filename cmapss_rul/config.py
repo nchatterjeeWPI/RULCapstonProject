@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import List, Literal
+
 
 @dataclass
 class Paths:
@@ -45,6 +46,12 @@ class DefaultConfig:
     cap: int = 125
     val_size: float = 0.2
     datasets: List[str] = tuple(ALL_FD)
+
+    # Uncertainty defaults
+    uncertainty_method: Literal["none", "conformal", "mc"] = "conformal"
+    alpha: float = 0.10
+    mc_samples: int = 50
+    clip_pred: bool = True
 
 DEFAULT = DefaultConfig()
 
