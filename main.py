@@ -111,7 +111,7 @@ def main():
     # 12. Test & evaluate
     all_results = test_and_evaluate(
         trained_models, sequences_data, 
-        config['datasets'], output_dir
+        config['datasets'], output_dir, config
     )
 
     # 13. Report results

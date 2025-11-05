@@ -48,10 +48,17 @@ def build_parser() -> argparse.ArgumentParser:
     # Tuning toggle
     parser.add_argument("--tuning", choices=["on", "off"], default=None,
                         help="Run hyperparameter tuning before training")
-    
+
     # Sensor selection
     parser.add_argument("--use-common-sensors", action="store_true",
                         help="Run sensor analysis and use only top recommended sensors for feature selection")
+
+    # Uncertainty controls
+    parser.add_argument("--uncertainty", choices=["none", "conformal", "mc"], default=None,
+                        help="Interval method: none, conformal residual quantile, or mc (Monte Carlo dropout)")
+    parser.add_argument("--alpha", type=float, default=None,
+                        help="(1 - alpha) = target coverage; e.g., alpha=0.1 -> ~90% interval")
+    parser.add_argument("--mc-samples", type=int, default=None, help="T: number of MC dropout samples")
 
     return parser
 
@@ -60,12 +67,12 @@ def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
     """Parse args from argv (or sys.argv if None)."""
     parser = build_parser()
     args = parser.parse_args(argv)
-    
+
     # Print all parser fields
     print("Parser fields:")
     for arg, value in vars(args).items():
         print(f"  {arg}: {value}")
-    
+
     return args
 
 
