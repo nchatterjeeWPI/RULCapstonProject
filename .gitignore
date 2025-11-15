@@ -62,3 +62,5 @@ Thumbs.db
 build/
 dist/
 *.egg-info/
+/check_cuda.py
+/install_cuda_cudnn.sh
