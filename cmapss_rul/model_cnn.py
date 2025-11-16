@@ -219,6 +219,7 @@ def tune(
         factor=3,
         directory=directory,
         project_name=project_name,
+        overwrite= True,
     )
 
     # Early stop inside the search to avoid wasting time on weak trials
@@ -234,17 +235,20 @@ def tune(
         verbose=1,
     )
 
-    # Retrieve best hyperparameters and build/train the corresponding model
-    best_hp = tuner.get_best_hyperparameters(1)[0]
+    # Retrieve best HPs and rebuild model
+    best_hp = tuner.get_best_hyperparameters(num_trials=1)[0]
     best_model = build_from_hp(best_hp)
 
-    # If batch_size is part of HPs, use it; otherwise fall back to 64
+    # Safely get batch_size from the HP values dict
+    hp_values = best_hp.values
+    bs = hp_values.get("batch_size", 64)
+
     history = best_model.fit(
         X_tr,
         y_tr,
         validation_data=(X_val, y_val),
         epochs=max_epochs,
-        batch_size=best_hp.get("batch_size", 64) if hasattr(best_hp, "get") else 64,
+        batch_size=bs,
         callbacks=[es],
         verbose=1,
     )

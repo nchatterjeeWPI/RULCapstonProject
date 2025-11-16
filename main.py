@@ -102,11 +102,18 @@ def main():
         sensor_cols, setting_cols, config['sequence_length'], config['K']
     )
 
-    # 11. Train models
+    # 11. Train models and Save
     trained_models = train_models(
         sequences_data, config['architectures'], 
         config['epochs'], config['use_tuning']
     )
+    model_dir = output_dir / "final_model"
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    for arch, model in trained_models.items():
+        model_path = model_dir / f"{arch}_final.keras"
+        print(f"[SAVE] Saving final {arch} model to {model_path}")
+        model.save(model_path)
 
     # 12. Test & evaluate
     all_results = test_and_evaluate(
