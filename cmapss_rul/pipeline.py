@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import GroupShuffleSplit
-
+import json
 from . import preprocess, regimes, sequences, eval as eval_module, \
     sensor_analysis
 from . import model_tcn, model_lstm, model_cnn
@@ -530,7 +530,8 @@ def sequence_generation(
         'X_test_dict': X_te_dict,
         'y_test_dict': y_te_dict,
         'engine_ids_test_dict': engine_ids_te_dict,
-        'last_idx_map': last_idx_map
+        'last_idx_map': last_idx_map,
+        "feature_cols": feature_cols,
     }
 
 
@@ -823,6 +824,53 @@ def report_results(
     print("=" * 70)
     print(f"Results saved to: {output_dir.resolve()}")
     print(f"Architectures trained: {list(all_results.keys())}")
+
+def save_models_and_metadata(
+        trained_models: Dict[str, Any],
+        feature_cols: List[str],
+        config: Dict[str, Any],
+        output_dir: Path,
+) -> None:
+    """
+    Save each trained model (.keras) together with a sidecar metadata JSON.
+
+    This allows inference scripts to know exactly which sequence length and
+    feature columns were used during training.
+    """
+    model_dir = output_dir / "final_model"
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    # Base metadata common to all architectures
+    base_meta = {
+        "datasets": list(config.get("datasets", [])),
+        "sequence_length": int(config.get("sequence_length")),
+        "cap_val": int(config.get("cap_val")),
+        "K": int(config.get("K")),
+        "val_size": float(config.get("val_size")),
+        "use_tuning": bool(config.get("use_tuning")),
+        "use_common_sensors": bool(config.get("use_common_sensors")),
+        "uncertainty_method": config.get("uncertainty_method"),
+        "alpha": float(config.get("alpha")),
+        "mc_samples": int(config.get("mc_samples")),
+        "clip_pred": bool(config.get("clip_pred")),
+        "feature_cols": list(feature_cols),
+    }
+
+    for arch, model in trained_models.items():
+        arch_stub = f"{arch}_final"
+        model_path = model_dir / f"{arch_stub}.keras"
+        meta_path = model_dir / f"{arch_stub}.meta.json"
+
+        print(f"[SAVE] Saving final {arch} model to {model_path}")
+        model.save(model_path)
+
+        meta = dict(base_meta)
+        meta["architecture"] = arch
+
+        with meta_path.open("w") as f:
+            json.dump(meta, f, indent=2)
+
+        print(f"[SAVE] Saved {arch} metadata to {meta_path}")
 
 
 # ============================================================================

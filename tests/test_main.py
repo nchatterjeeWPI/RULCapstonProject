@@ -33,6 +33,11 @@ def test_main_runs_without_errors(monkeypatch):
         "epochs": 1,
         "use_tuning": False,
         "run_sensor_analysis": False,
+        "use_common_sensors": False,
+        "uncertainty_method": None,
+        "alpha": 0.1,
+        "mc_samples": 30,
+        "clip_pred": True,
     }
 
     def fake_parse_arguments():
@@ -122,6 +127,7 @@ def test_main_runs_without_errors(monkeypatch):
             "y_test_dict": {},
             "engine_ids_test_dict": {},
             "last_idx_map": {},
+            "feature_cols": ["sensor_1"],
         }
 
     monkeypatch.setattr(main, "sequence_generation", fake_sequence_generation)
@@ -133,6 +139,24 @@ def test_main_runs_without_errors(monkeypatch):
         return {"lstm": DummyModel()}
 
     monkeypatch.setattr(main, "train_models", fake_train_models)
+
+    saver_called = {}
+
+    def fake_save_models_and_metadata(trained_models, feature_cols, config,
+                                      output_dir):
+        # Record that we were called
+        saver_called["called"] = True
+        saver_called["feature_cols"] = feature_cols
+        saver_called["trained_models"] = trained_models
+        saver_called["output_dir"] = output_dir
+        # Optional: sanity check on config if you want
+        assert config is not None
+        # Basic sanity checks
+        assert "lstm" in trained_models
+        assert feature_cols == ["sensor_1"]
+
+    monkeypatch.setattr(main, "save_models_and_metadata",
+                        fake_save_models_and_metadata)
 
     def fake_test_and_evaluate(trained_models, sequences_data, datasets,
                                output_dir, cfg):
@@ -160,3 +184,8 @@ def test_main_runs_without_errors(monkeypatch):
     # output_dir is now a Path
     assert captured["output_dir"] == Path("out_dir")
     assert captured["architectures"] == ["lstm"]
+
+    #ensure save_models_and_metadata was called
+    assert saver_called.get("called",
+                            False), "save_models_and_metadata was not called"
+    assert saver_called["feature_cols"] == ["sensor_1"]

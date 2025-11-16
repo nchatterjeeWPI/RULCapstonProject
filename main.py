@@ -43,7 +43,8 @@ from cmapss_rul.pipeline import (
     sequence_generation,
     train_models,
     test_and_evaluate,
-    report_results
+    report_results,
+    save_models_and_metadata,
 )
 
 
@@ -98,22 +99,32 @@ def main():
 
     # 10. Sequence generation
     sequences_data = sequence_generation(
-        train_df, val_df, test_data, config['datasets'],
-        sensor_cols, setting_cols, config['sequence_length'], config['K']
+        train_df,
+        val_df,
+        test_data,
+        config["datasets"],
+        sensor_cols,
+        setting_cols,
+        config["sequence_length"],
+        config["K"],
     )
 
-    # 11. Train models and Save
+    # 11a. Train models
     trained_models = train_models(
-        sequences_data, config['architectures'], 
-        config['epochs'], config['use_tuning']
+        sequences_data,
+        config["architectures"],
+        config["epochs"],
+        config["use_tuning"],
     )
-    model_dir = output_dir / "final_model"
-    model_dir.mkdir(parents=True, exist_ok=True)
 
-    for arch, model in trained_models.items():
-        model_path = model_dir / f"{arch}_final.keras"
-        print(f"[SAVE] Saving final {arch} model to {model_path}")
-        model.save(model_path)
+    # 11b. Save models + metadata
+    feature_cols = sequences_data["feature_cols"]
+    save_models_and_metadata(
+        trained_models=trained_models,
+        feature_cols=feature_cols,
+        config=config,
+        output_dir=output_dir,
+    )
 
     # 12. Test & evaluate
     all_results = test_and_evaluate(
