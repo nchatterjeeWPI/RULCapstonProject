@@ -1,6 +1,17 @@
 import pandas as pd
+from pathlib import Path
 
 import main
+
+
+class DummyModel:
+    def __init__(self):
+        self.saved_paths = []
+
+    def save(self, path):
+        # Just record or print the path; no real saving
+        self.saved_paths.append(path)
+        print(f"[DUMMY SAVE] Pretending to save to {path}")
 
 
 def test_main_runs_without_errors(monkeypatch):
@@ -33,7 +44,7 @@ def test_main_runs_without_errors(monkeypatch):
     def fake_setup_and_download(args, cfg):
         assert args is dummy_args
         assert cfg is config
-        return "paths_obj", "out_dir"
+        return "paths_obj", Path("out_dir")
 
     monkeypatch.setattr(main, "setup_and_download", fake_setup_and_download)
 
@@ -118,12 +129,15 @@ def test_main_runs_without_errors(monkeypatch):
     def fake_train_models(sequences_data, architectures, epochs, use_tuning):
         assert architectures == ["lstm"]
         assert epochs == 1
-        return {"lstm": "trained_model"}
+        # Return a dummy model with a .save() method
+        return {"lstm": DummyModel()}
 
     monkeypatch.setattr(main, "train_models", fake_train_models)
 
-    def fake_test_and_evaluate(trained_models, sequences_data, datasets, output_dir):
+    def fake_test_and_evaluate(trained_models, sequences_data, datasets,
+                               output_dir, cfg):
         assert "lstm" in trained_models
+        assert cfg is config
         return {"lstm": {"rmse": 42.0}}
 
     monkeypatch.setattr(main, "test_and_evaluate", fake_test_and_evaluate)
@@ -143,5 +157,6 @@ def test_main_runs_without_errors(monkeypatch):
 
     assert captured.get("called", False), "report_results was not called"
     assert captured["results"]["lstm"]["rmse"] == 42.0
-    assert captured["output_dir"] == "out_dir"
+    # output_dir is now a Path
+    assert captured["output_dir"] == Path("out_dir")
     assert captured["architectures"] == ["lstm"]
