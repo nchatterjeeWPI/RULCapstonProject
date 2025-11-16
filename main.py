@@ -111,7 +111,7 @@ def main():
     model_dir.mkdir(parents=True, exist_ok=True)
 
     for arch, model in trained_models.items():
-        model_path = model_dir / f"{arch}_final.keras"  # or .h5 if you prefer
+        model_path = model_dir / f"{arch}_final.keras"
         print(f"[SAVE] Saving final {arch} model to {model_path}")
         model.save(model_path)
 
