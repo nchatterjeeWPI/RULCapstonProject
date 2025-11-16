@@ -27,7 +27,7 @@ from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 # 1) BUILD THE LSTM MODEL
 # ===============================================================
 # Stack two LSTM layers (first returns sequences, second returns last timestep),
-# then a Dense head for regression. We use dropout (and recurrent_dropout) to
+# then a Dense head for regression. We use dropout to
 # reduce overfitting, and gradient clipping to stabilize training.
 # ---------------------------------------------------------------
 def build_lstm(
@@ -36,36 +36,37 @@ def build_lstm(
     lstm2_units: int = 32,
     dense_units: int = 64,
     dropout: float = 0.2,
-    recurrent_dropout: float = 0.1,
+    recurrent_dropout: float = 0.0,  # kept for API compatibility
     lr: float = 1e-3,
 ) -> Model:
-    # Clear any old TF graph/state (good hygiene between runs in notebooks/scripts)
     tf.keras.backend.clear_session()
-
-    # Input shape: (sequence_length, num_features)
     inp = Input(shape=input_shape, dtype="float32")
 
-    # LSTM #1: returns full sequence so LSTM #2 can process temporal outputs
+    # Keep LSTMs CuDNN-compatible: no internal dropout/recurrent_dropout
     x = LSTM(
         lstm1_units,
         return_sequences=True,
-        dropout=dropout,
-        recurrent_dropout=recurrent_dropout
+        activation="tanh",
+        recurrent_activation="sigmoid",
+        use_bias=True,
+        dropout=0.0,
+        recurrent_dropout=0.0,
     )(inp)
 
-    # LSTM #2: returns only the final hidden state (summary of the sequence)
     x = LSTM(
         lstm2_units,
         return_sequences=False,
-        dropout=dropout,
-        recurrent_dropout=recurrent_dropout
+        activation="tanh",
+        recurrent_activation="sigmoid",
+        use_bias=True,
+        dropout=0.0,
+        recurrent_dropout=0.0,
     )(x)
 
-    # Dense head: non-linear layer before final regression
+    # Apply dropout *outside* the LSTM
     x = Dense(dense_units, activation="relu")(x)
     x = Dropout(dropout)(x)
 
-    # Final regression output: predict a single continuous RUL value
     out = Dense(1, activation="linear")(x)
 
     # Build and compile the model
@@ -118,7 +119,7 @@ def train_default(
         lstm2_units=32,
         dense_units=64,
         dropout=0.2,
-        recurrent_dropout=0.1,
+        recurrent_dropout=0,
         lr=lr,
     )
 
@@ -187,18 +188,32 @@ def tune(
         lstm2_units = hp.Choice("lstm2_units", [16, 32, 48, 64])
         dense_units = hp.Choice("dense_units", [32, 64, 96, 128])
         dropout = hp.Float("dropout", 0.1, 0.4, step=0.1)
-        recurrent_dropout = hp.Float("recurrent_dropout", 0.0, 0.3, step=0.1)
         lr = hp.Float("lr", 1e-4, 3e-3, sampling="log")
-        # Let Hyperband pick batch size too
         _ = hp.Choice("batch_size", [32, 64, 96])
 
-        # Build a candidate LSTM with the sampled hyperparameters
         tf.keras.backend.clear_session()
         inp = Input(shape=X_tr.shape[1:], dtype="float32")
-        x = LSTM(lstm1_units, return_sequences=True, dropout=dropout,
-                 recurrent_dropout=recurrent_dropout)(inp)
-        x = LSTM(lstm2_units, return_sequences=False, dropout=dropout,
-                 recurrent_dropout=recurrent_dropout)(x)
+
+        x = LSTM(
+            lstm1_units,
+            return_sequences=True,
+            activation="tanh",
+            recurrent_activation="sigmoid",
+            use_bias=True,
+            dropout=0.0,
+            recurrent_dropout=0.0,
+        )(inp)
+
+        x = LSTM(
+            lstm2_units,
+            return_sequences=False,
+            activation="tanh",
+            recurrent_activation="sigmoid",
+            use_bias=True,
+            dropout=0.0,
+            recurrent_dropout=0.0,
+        )(x)
+
         x = Dense(dense_units, activation="relu")(x)
         x = Dropout(dropout)(x)
         out = Dense(1, activation="linear")(x)
@@ -216,6 +231,7 @@ def tune(
         factor=3,
         directory=directory,
         project_name=project_name,
+        overwrite= True,
     )
 
     # Still keep early stopping to save time on bad trials
@@ -231,11 +247,14 @@ def tune(
     )
 
     # Retrieve best HPs and build/train the best model configuration
-    best_hp = tuner.get_best_hyperparameters(1)[0]
+    best_hp = tuner.get_best_hyperparameters(num_trials=1)[0]
+
+    # Rebuild the model from best HPs
     best_model = build_from_hp(best_hp)
 
-    # If batch_size was part of HPs, use it; otherwise fall back to 64
-    bs = best_hp.get("batch_size", 64) if hasattr(best_hp, "get") else 64
+    # Safely get batch_size from the HyperParameters values dict
+    hp_values = best_hp.values  # this is just a regular dict
+    bs = hp_values.get("batch_size", 64)
 
     history = best_model.fit(
         X_tr, y_tr,

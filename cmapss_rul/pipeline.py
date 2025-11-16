@@ -762,27 +762,29 @@ def test_and_evaluate(
         else:
             print(f"[{arch.upper()}] No usable interval bounds found; plots saved (bands may be absent).")
 
+        # Keep the uncertainty-aware final_df for saving + results
+        final_df_unc = final_df.copy()
 
-
-
-        final_df = eval_module.build_final_engine_table(
+        # Build a separate table (if you still want the extra stats)
+        final_df_no_unc = eval_module.build_final_engine_table(
             model, X_test_dict, y_test_dict, engine_ids_test_dict,
             last_idx_map,
-            clip_pred=True
+            clip_pred=clip_pred,  # respect config
         )
 
-        # After final_df is built in the new test_and_evaluate:
-        if not final_df.empty:
-            tmp = final_df.copy()
+        if not final_df_no_unc.empty:
+            tmp = final_df_no_unc.copy()
             tmp["abs_delta"] = (tmp["y_pred"] - tmp["y_true"]).abs()
             print(f"\n[{arch.upper()}] Top 20 engines by |prediction error|:")
-            print(tmp.sort_values("abs_delta", ascending=False).head(20).to_string(index=False))
+            print(tmp.sort_values("abs_delta", ascending=False).head(
+                20).to_string(index=False))
 
-
+        # Store BOTH if you like, or just the uncertainty one:
         all_results[arch] = {
-            'model': model,
-            'metrics': metrics_df,
-            'final_predictions': final_df
+            "model": model,
+            "metrics": metrics_df,
+            "final_predictions": final_df_unc,  # keeps y_pred_lo/hi
+            "final_predictions_plain": final_df_no_unc,
         }
 
     return all_results
