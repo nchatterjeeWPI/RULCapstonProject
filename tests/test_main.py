@@ -9,7 +9,7 @@ class DummyModel:
         self.saved_paths = []
 
     def save(self, path):
-        # Just record or print the path; no real saving
+        # Just record the path -- no saving
         self.saved_paths.append(path)
         print(f"[DUMMY SAVE] Pretending to save to {path}")
 
