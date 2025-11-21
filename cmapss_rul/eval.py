@@ -59,6 +59,72 @@ def build_final_engine_table(model, X_te_dict, y_te_dict, engine_ids_te_dict, la
     if df.empty: return df
     return df.sort_values("abs_delta", ascending=False, ignore_index=True)
 
+def final_engine_metrics(
+    final_df: pd.DataFrame,
+    ks=(10, 20, 30),
+) -> pd.DataFrame:
+    """
+    Compute RMSE, CMAPSS score and 'accuracy within ±K cycles'
+    from the final-engine prediction table.
+
+    Parameters
+    ----------
+    final_df : pd.DataFrame
+        Output of build_final_engine_table() with at least
+        'dataset', 'y_true', 'y_pred', 'abs_delta' columns.
+    ks : iterable of int
+        Error thresholds (in cycles) for accuracy metrics.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per dataset + one 'OVERALL' row, with columns:
+        ['dataset', 'n_engines', 'RMSE_final', 'CMAPSS_final',
+         'acc_within_<k>' ...]
+    """
+    if final_df is None or final_df.empty:
+        return pd.DataFrame()
+
+    rows = []
+
+    # Per-dataset metrics
+    for ds, g in final_df.groupby("dataset"):
+        y_true = g["y_true"].to_numpy()
+        y_pred = g["y_pred"].to_numpy()
+        abs_err = np.abs(y_pred - y_true)
+
+        rmse = float(np.sqrt(mean_squared_error(y_true, y_pred)))
+        score = cmapss_score(y_true, y_pred)
+
+        row = {
+            "dataset": ds,
+            "n_engines": int(len(g)),
+            "RMSE_final": rmse,
+            "CMAPSS_final": score,
+        }
+        for k in ks:
+            row[f"acc_within_{k}"] = float((abs_err <= k).mean())
+        rows.append(row)
+
+    # Overall metrics across all datasets
+    y_true_all = final_df["y_true"].to_numpy()
+    y_pred_all = final_df["y_pred"].to_numpy()
+    abs_all = np.abs(y_pred_all - y_true_all)
+
+    rmse_all = float(np.sqrt(mean_squared_error(y_true_all, y_pred_all)))
+    score_all = cmapss_score(y_true_all, y_pred_all)
+
+    overall = {
+        "dataset": "OVERALL",
+        "n_engines": int(len(final_df)),
+        "RMSE_final": rmse_all,
+        "CMAPSS_final": score_all,
+    }
+    for k in ks:
+        overall[f"acc_within_{k}"] = float((abs_all <= k).mean())
+    rows.append(overall)
+
+    return pd.DataFrame(rows)
 
 def evaluate_per_dataset(model, X_te_dict, y_te_dict, engine_ids_te_dict, last_idx_map):
     # Simple wrapper that could be extended
