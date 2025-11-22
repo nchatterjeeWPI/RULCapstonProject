@@ -57,8 +57,106 @@ def build_final_engine_table(model, X_te_dict, y_te_dict, engine_ids_te_dict, la
             })
     df = pd.DataFrame(rows)
     if df.empty: return df
+    df["accuracy_pct_engine"] = 100.0 - df["pct_abs_error"]
     return df.sort_values("abs_delta", ascending=False, ignore_index=True)
 
+def final_engine_metrics(
+    final_df: pd.DataFrame,
+    ks=(10, 20, 30),
+) -> pd.DataFrame:
+    """
+    Compute RMSE, CMAPSS score, MAPE, 'accuracy pct' and 'accuracy within ±K cycles'
+    from the final-engine prediction table.
+
+    Parameters
+    ----------
+    final_df : pd.DataFrame
+        Output of build_final_engine_table() with at least
+        'dataset', 'y_true', 'y_pred', 'abs_delta', 'pct_abs_error' columns.
+    ks : iterable of int
+        Error thresholds (in cycles) for accuracy-within-K metrics.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per dataset + one 'OVERALL' row, with columns:
+        ['dataset', 'n_engines',
+         'RMSE_final', 'CMAPSS_final',
+         'MAPE_final', 'Accuracy_pct_final',
+         'acc_within_<k>', ...]
+    """
+    if final_df is None or final_df.empty:
+        return pd.DataFrame()
+
+    rows = []
+
+    # Helper to compute MAPE and Accuracy_pct from a group
+    def mape_and_acc_pct(df: pd.DataFrame):
+        if "pct_abs_error" in df.columns:
+            # pct_abs_error is already in %
+            vals = df["pct_abs_error"].to_numpy()
+        else:
+            y_true = df["y_true"].to_numpy()
+            y_pred = df["y_pred"].to_numpy()
+            # avoid divide-by-zero
+            mask = y_true > 0
+            if not mask.any():
+                return np.nan, np.nan
+            vals = np.abs(y_pred[mask] - y_true[mask]) / y_true[mask] * 100.0
+
+        # filter out NaNs just in case
+        finite = np.isfinite(vals)
+        if not finite.any():
+            return np.nan, np.nan
+
+        mape = float(vals[finite].mean())           # %
+        acc_pct = float(100.0 - mape)               # %
+        return mape, acc_pct
+
+    # -------- Per-dataset metrics --------
+    for ds, g in final_df.groupby("dataset"):
+        y_true = g["y_true"].to_numpy()
+        y_pred = g["y_pred"].to_numpy()
+        abs_err = np.abs(y_pred - y_true)
+
+        rmse = float(np.sqrt(mean_squared_error(y_true, y_pred)))
+        score = cmapss_score(y_true, y_pred)
+        mape, acc_pct = mape_and_acc_pct(g)
+
+        row = {
+            "dataset": ds,
+            "n_engines": int(len(g)),
+            "RMSE_final": rmse,
+            "CMAPSS_final": score,
+            "MAPE_final": mape,
+            "Accuracy_pct_final": acc_pct,
+        }
+        for k in ks:
+            row[f"acc_within_{k}"] = float((abs_err <= k).mean())
+        rows.append(row)
+
+    # -------- Overall metrics across all datasets --------
+    y_true_all = final_df["y_true"].to_numpy()
+    y_pred_all = final_df["y_pred"].to_numpy()
+    abs_all = np.abs(y_pred_all - y_true_all)
+
+    rmse_all = float(np.sqrt(mean_squared_error(y_true_all, y_pred_all)))
+    score_all = cmapss_score(y_true_all, y_pred_all)
+    mape_all, acc_pct_all = mape_and_acc_pct(final_df)
+
+    overall = {
+        "dataset": "OVERALL",
+        "n_engines": int(len(final_df)),
+        "RMSE_final": rmse_all,
+        "CMAPSS_final": score_all,
+        "MAPE_final": mape_all,
+        "Accuracy_pct_final": acc_pct_all,
+    }
+    for k in ks:
+        overall[f"acc_within_{k}"] = float((abs_all <= k).mean())
+    rows.append(overall)
+
+    return pd.DataFrame(rows)
 
 def evaluate_per_dataset(model, X_te_dict, y_te_dict, engine_ids_te_dict, last_idx_map):
     # Simple wrapper that could be extended

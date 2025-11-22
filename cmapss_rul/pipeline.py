@@ -769,21 +769,49 @@ def test_and_evaluate(
         final_df_no_unc = eval_module.build_final_engine_table(
             model, X_test_dict, y_test_dict, engine_ids_test_dict,
             last_idx_map,
-            clip_pred=clip_pred,  # respect config
+            clip_pred=clip_pred,
         )
 
+        # 6b) Extra debug view: top engines by absolute error
         if not final_df_no_unc.empty:
             tmp = final_df_no_unc.copy()
-            tmp["abs_delta"] = (tmp["y_pred"] - tmp["y_true"]).abs()
+            # abs_delta already exists from build_final_engine_table
             print(f"\n[{arch.upper()}] Top 20 engines by |prediction error|:")
-            print(tmp.sort_values("abs_delta", ascending=False).head(
-                20).to_string(index=False))
+            print(
+                tmp.sort_values("abs_delta", ascending=False)
+                .head(20)
+                .to_string(index=False)
+            )
 
-        # Store BOTH if you like, or just the uncertainty one:
+        # 7) Final-engine metrics: RMSE/CMAPSS + accuracy within ±K cycles
+        final_metrics_df = eval_module.final_engine_metrics(
+            final_df_no_unc,
+            ks=[10, 20]  # adjust thresholds as you like
+        )
+
+        if not final_metrics_df.empty:
+            metrics_path = model_dir / f"final_engine_metrics_{arch}.csv"
+            final_metrics_df.to_csv(metrics_path, index=False)
+
+            # Pretty-print accuracy columns as percentages
+            pct_cols = [c for c in final_metrics_df.columns if
+                        c.startswith("acc_within_")]
+            display_df = final_metrics_df.copy()
+            for col in pct_cols:
+                display_df[col] = (display_df[col] * 100).round(1).astype(
+                    str) + " %"
+
+            print(
+                f"\n[{arch.upper()}] Final-engine metrics (RMSE/CMAPSS/Accuracy):")
+            print(display_df.to_string(index=False))
+
+        # 8) Store results for later reporting/comparison
         all_results[arch] = {
             "model": model,
-            "metrics": metrics_df,
-            "final_predictions": final_df_unc,  # keeps y_pred_lo/hi
+            "metrics": metrics_df,  # per-dataset window metrics
+            "final_metrics": final_metrics_df,
+            # per-dataset + overall engine metrics
+            "final_predictions": final_df_unc,  # with intervals if any
             "final_predictions_plain": final_df_no_unc,
         }
 
@@ -811,18 +839,35 @@ def report_results(
     print("STEP 13: REPORT RESULTS")
     print("=" * 70)
 
-    # Summary comparison if multiple architectures
+    # 1) Per-dataset window metrics (existing behavior)
     if len(architectures) > 1:
-        print("\nARCHITECTURE COMPARISON:")
+        print(
+            "\nARCHITECTURE COMPARISON (per-dataset RMSE / CMAPSS / n_windows):")
         for arch_name, results in all_results.items():
             print(f"\n{arch_name.upper()}:")
-            print(results['metrics'].to_string(index=False))
+            print(results["metrics"].to_string(index=False))
 
-    print("\n" + "=" * 70)
-    print("PIPELINE COMPLETE")
-    print("=" * 70)
-    print(f"Results saved to: {output_dir.resolve()}")
-    print(f"Architectures trained: {list(all_results.keys())}")
+    # 2) Final-engine overall metrics
+    print("\nFINAL-ENGINE METRICS (OVERALL):")
+    for arch_name, results in all_results.items():
+        fm = results.get("final_metrics")
+        if fm is None or fm.empty:
+            continue
+
+        overall_row = fm[fm["dataset"] == "OVERALL"]
+        if overall_row.empty:
+            continue
+
+        # Pretty-print accuracy columns as percentages
+        pct_cols = [c for c in overall_row.columns if
+                    c.startswith("acc_within_")]
+        display_overall = overall_row.copy()
+        for col in pct_cols:
+            display_overall[col] = (display_overall[col] * 100).round(
+                1).astype(str) + " %"
+
+        print(f"\n{arch_name.upper()}:")
+        print(display_overall.to_string(index=False))
 
 
 # ============================================================================
