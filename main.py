@@ -16,7 +16,7 @@ This script orchestrates the high-level workflow:
 12. Test & evaluate
 13. Report results
 """
-
+import time
 import tensorflow as tf
 
 # Configure TensorFlow memory growth to prevent allocation warnings
@@ -50,7 +50,7 @@ from cmapss_rul.pipeline import (
 
 def main():
     """Main entry point for the RUL prediction pipeline."""
-    
+    start = time.perf_counter()
     # 1. Parse command-line arguments
     args, config = parse_arguments()
     
@@ -135,6 +135,9 @@ def main():
     # 13. Report results
     report_results(all_results, output_dir, config['architectures'])
 
+    end = time.perf_counter()
+    elapsed = (end - start)/3600
+    print(f"\n ----> TOTAL RUNTIME:{elapsed:.4f} Hours")
 
 if __name__ == "__main__":
     main()
