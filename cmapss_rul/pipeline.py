@@ -550,6 +550,23 @@ def sequence_generation(
         "feature_cols": feature_cols,
     }
 
+# ============================================================================
+# Save History
+# ============================================================================
+
+def _save_history(history, path: Path) -> None:
+    """Save a Keras History object as CSV with an epoch column."""
+    if history is None:
+        return
+    hist = history.history or {}
+    if not hist:
+        return
+
+    df = pd.DataFrame(hist)
+    df.insert(0, "epoch", np.arange(1, len(df) + 1))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(path, index=False)
+    print(f"[INFO] Saved training history to: {path}")
 
 # ============================================================================
 # Train Models
@@ -573,6 +590,9 @@ def train_models(
     Returns:
         Dictionary of trained models by architecture
     """
+    logs_root = Path("_outputs") / "training_logs"
+    logs_root.mkdir(parents=True, exist_ok=True)
+
     print("\n" + "=" * 70)
     print("STEP 11: TRAIN MODELS")
     print("=" * 70)
@@ -605,6 +625,9 @@ def train_models(
             print(f"Training {arch.upper()} with fixed hyperparameters...")
             model, history = mod.train_default(X_train, y_train, X_val, y_val,
                                                epochs=epochs)
+            # Save training history
+            _save_history(history, logs_root / f"{arch}_train_history.csv")
+
         else:
             if hasattr(mod, "tune"):
                 print(
@@ -620,12 +643,15 @@ def train_models(
                     print("Best hyperparameters:", best_hp.values)
                 except Exception:
                     pass
+                # Save tuning/selected-model history if available
+                _save_history(history, logs_root / f"{arch}_tuning_history.csv")
             else:
                 print(
                     f"[WARN] Tuning not implemented for '{arch}'. Using fixed hyperparameters.")
                 model, history = mod.train_default(X_train, y_train, X_val,
                                                    y_val,
                                                    epochs=epochs)
+                _save_history(history, logs_root / f"{arch}_train_history.csv")
 
         trained_models[arch] = model
 
@@ -688,6 +714,10 @@ def test_and_evaluate(
                                                      y_test_dict, datasets)
         print(f"\n[{arch.upper()}] Per-dataset test metrics:")
         print(metrics_df.to_string(index=False))
+
+        metrics_csv = model_dir / f"per_dataset_window_metrics_{arch}.csv"
+        metrics_df.to_csv(metrics_csv, index=False)
+        print(f"[INFO] Saved per-dataset window metrics to: {metrics_csv}")
 
         # 2) Calibrate conformal q-hat
         qhat = None

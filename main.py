@@ -19,6 +19,10 @@ This script orchestrates the high-level workflow:
 import os
 import time
 import warnings
+import sys
+import json
+import platform
+from datetime import datetime
 
 # --- Silence most TensorFlow C++ logs ---
 # 0 = all logs, 1 = filter INFO, 2 = filter INFO+WARNING, 3 = only ERROR+FATAL
@@ -66,7 +70,23 @@ def main():
     
     # 2. Setup & Download (optional)
     paths, output_dir = setup_and_download(args, config)
-    
+
+    # 2b. Persist run configuration for reproducibility
+    run_meta = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "python_version": sys.version,
+        "platform": platform.platform(),
+        "args": vars(args),
+        "config": config,
+    }
+
+    run_config_path = output_dir / "run_config.json"
+    run_config_path.parent.mkdir(parents=True, exist_ok=True)
+    with run_config_path.open("w") as f:
+        json.dump(run_meta, f, indent=2, default=str)
+
+    print(f"[INFO] Saved run configuration to: {run_config_path}")
+
     # 3. Load data
     train_data, test_data, rul_data = load_datasets(paths, config['datasets'])
     
