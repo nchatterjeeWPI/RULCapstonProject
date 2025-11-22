@@ -29,9 +29,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out", default=None,
                         help="Output root directory (default: runs/<timestamp>)")
 
-    # Core controls (None -> fall back to DEFAULTS in main)
-    parser.add_argument("--arch", choices=["tcn", "lstm", "cnn", "all"], default=None,
-                        help="Model architecture to run, or 'all' to run all three")
+    # Core controls (None -> fall back to DEFAULTS in pipeline.parse_arguments)
+    parser.add_argument(
+        "--arch",
+        nargs="+",
+        choices=["tcn", "lstm", "cnn", "all"],
+        default=None,
+        help=(
+            "Architectures to run, e.g. '--arch tcn lstm'. "
+            "Include 'all' to run all three."
+        ),
+    )
     parser.add_argument("--epochs", type=int, default=None,
                         help="Training epochs (complete passes over the dataset)")
     parser.add_argument("--sequence-length", type=int, dest="sequence_length", default=None,

@@ -39,17 +39,39 @@ def parse_arguments() -> Tuple[Any, Dict[str, Any]]:
     args = parse_args()
 
     # Resolve configuration (CLI args override defaults)
-    arch = args.arch or DEFAULT.arch
+
+    # --- Architectures: allow one or many values from CLI ---
+    # args.arch is now either:
+    #   - None (not provided)
+    #   - ["tcn"], ["lstm"], ["cnn"], ["all"], or combinations like ["tcn", "lstm"]
+    if args.arch is None:
+        arch_list = [
+            DEFAULT.arch]  # fallback to single default arch (e.g., "cnn")
+    else:
+        arch_list = list(args.arch)
+
+    # If user includes "all" anywhere, run all three
+    if "all" in arch_list:
+        architectures = ["tcn", "lstm", "cnn"]
+    else:
+        architectures = arch_list
+
     use_tuning = (
-        DEFAULT.use_tuning if args.tuning is None else (args.tuning == "on"))
+        DEFAULT.use_tuning if args.tuning is None else (args.tuning == "on")
+    )
     epochs = args.epochs if args.epochs is not None else DEFAULT.epochs
-    sequence_length = args.sequence_length if args.sequence_length is not None else DEFAULT.sequence_length
+    sequence_length = (
+        args.sequence_length
+        if args.sequence_length is not None
+        else DEFAULT.sequence_length
+    )
     K = args.regimes_k if args.regimes_k is not None else DEFAULT.k
     cap_val = args.cap if args.cap is not None else DEFAULT.cap
     val_size = args.val_size if args.val_size is not None else DEFAULT.val_size
     datasets = args.datasets or list(DEFAULT.datasets)
     use_common_sensors = args.use_common_sensors
-    unc_method = getattr(args, "uncertainty", None) or DEFAULT.uncertainty_method
+    unc_method = getattr(args, "uncertainty",
+                         None) or DEFAULT.uncertainty_method
     alpha = getattr(args, "alpha", None)
     if alpha is None:
         alpha = DEFAULT.alpha
@@ -57,12 +79,6 @@ def parse_arguments() -> Tuple[Any, Dict[str, Any]]:
     if mc_samples is None:
         mc_samples = DEFAULT.mc_samples
     clip_pred = getattr(DEFAULT, "clip_pred", True)
-
-    # Determine architectures to run
-    if arch == "all":
-        architectures = ["tcn", "lstm", "cnn"]
-    else:
-        architectures = [arch]
 
     config = {
         'architectures': architectures,
@@ -843,13 +859,16 @@ def report_results(
     # 1) Per-dataset window metrics (existing behavior)
     if len(architectures) > 1:
         print(
-            "\nARCHITECTURE COMPARISON (per-dataset RMSE / CMAPSS / n_windows):")
+            "\nARCHITECTURE COMPARISON (per-dataset RMSE / CMAPSS / n_windows):"
+        )
         for arch_name, results in all_results.items():
             print(f"\n{arch_name.upper()}:")
             print(results["metrics"].to_string(index=False))
 
-    # 2) Final-engine overall metrics
+    # 2) Final-engine metrics (OVERALL) + collect for best-model selection
     print("\nFINAL-ENGINE METRICS (OVERALL):")
+    overall_rows = []
+
     for arch_name, results in all_results.items():
         fm = results.get("final_metrics")
         if fm is None or fm.empty:
@@ -859,16 +878,116 @@ def report_results(
         if overall_row.empty:
             continue
 
-        # Pretty-print accuracy columns as percentages
-        pct_cols = [c for c in overall_row.columns if
-                    c.startswith("acc_within_")]
+        # Pretty-print accuracy columns as percentages for console
+        pct_cols = [c for c in overall_row.columns if c.startswith("acc_within_")]
         display_overall = overall_row.copy()
         for col in pct_cols:
-            display_overall[col] = (display_overall[col] * 100).round(
-                1).astype(str) + " %"
+            display_overall[col] = (
+                display_overall[col] * 100
+            ).round(1).astype(str) + " %"
 
         print(f"\n{arch_name.upper()}:")
         print(display_overall.to_string(index=False))
+
+        # Keep raw numeric values for ranking
+        overall_rows.append(
+            {
+                "arch": arch_name,
+                **overall_row.iloc[0].to_dict(),
+            }
+        )
+
+    # 3) If multiple architectures ran (e.g. --arch all), declare best model
+    if len(architectures) > 1 and overall_rows:
+        summary_df = pd.DataFrame(overall_rows)
+
+        # Sort: lower RMSE_final, lower CMAPSS_final, higher acc_within_10
+        sort_cols = ["RMSE_final", "CMAPSS_final"]
+        ascending = [True, True]
+        if "acc_within_10" in summary_df.columns:
+            sort_cols.append("acc_within_10")
+            ascending.append(False)
+
+        summary_df_sorted = summary_df.sort_values(
+            by=sort_cols,
+            ascending=ascending,
+            ignore_index=True,
+        )
+        best = summary_df_sorted.iloc[0]
+        best_arch = str(best["arch"])
+
+        # Optional: persist best architecture for downstream scripts
+        best_path = output_dir / "best_architecture.txt"
+        with best_path.open("w") as f:
+            f.write(f"{best_arch}\n")
+
+        print("\n" + "-" * 70)
+        print("BEST-PERFORMING ARCHITECTURE (based on OVERALL final-engine metrics)")
+        print("-" * 70)
+        print(f"Best model: {best_arch.upper()}")
+
+        # Pull key metrics for explanation
+        def _get(name, default=float("nan")):
+            val = best.get(name, default)
+            try:
+                return float(val)
+            except Exception:
+                return default
+
+        best_rmse = _get("RMSE_final")
+        best_score = _get("CMAPSS_final")
+        best_mape = _get("MAPE_final")
+        best_acc_pct = _get("Accuracy_pct_final") * 100 if "Accuracy_pct_final" in best else float("nan")
+        best_acc10 = _get("acc_within_10") * 100 if "acc_within_10" in best else float("nan")
+
+        print("\nReasoning (vs. other architectures):")
+        for _, other in summary_df_sorted.iterrows():
+            other_arch = str(other["arch"])
+            if other_arch == best_arch:
+                continue
+
+            def _other(name):
+                return _get(name) if name in other.index else float("nan")
+
+            other_rmse = float(other.get("RMSE_final", float("nan")))
+            other_score = float(other.get("CMAPSS_final", float("nan")))
+            other_acc10 = (
+                float(other.get("acc_within_10", float("nan"))) * 100
+                if "acc_within_10" in other.index
+                else float("nan")
+            )
+
+            msgs = []
+            if not np.isnan(best_rmse) and not np.isnan(other_rmse):
+                diff_rmse = other_rmse - best_rmse
+                if diff_rmse > 0:
+                    msgs.append(
+                        f"RMSE_final is lower by {diff_rmse:.3f} "
+                        f"({best_rmse:.3f} vs {other_rmse:.3f})"
+                    )
+            if not np.isnan(best_score) and not np.isnan(other_score):
+                diff_score = other_score - best_score
+                if diff_score > 0:
+                    msgs.append(
+                        f"CMAPSS_final penalty is lower by {diff_score:.3f} "
+                        f"({best_score:.3f} vs {other_score:.3f})"
+                    )
+            if not np.isnan(best_acc10) and not np.isnan(other_acc10):
+                diff_acc10 = best_acc10 - other_acc10
+                if diff_acc10 > 0:
+                    msgs.append(
+                        f"higher fraction of engines within ±10 cycles "
+                        f"by {diff_acc10:.1f} percentage points "
+                        f"({best_acc10:.1f}% vs {other_acc10:.1f}%)"
+                    )
+
+            if not msgs:
+                msgs.append("metrics are comparable; selected by tie-break order")
+
+            print(f"- Compared to {other_arch.upper()}: " + "; ".join(msgs))
+
+        print(f"\n[INFO] Best architecture written to: {best_path.resolve()}")
+
 
 def save_models_and_metadata(
         trained_models: Dict[str, Any],

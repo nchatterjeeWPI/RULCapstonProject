@@ -16,11 +16,21 @@ This script orchestrates the high-level workflow:
 12. Test & evaluate
 13. Report results
 """
+import os
 import time
+import warnings
+
+# --- Silence most TensorFlow C++ logs ---
+# 0 = all logs, 1 = filter INFO, 2 = filter INFO+WARNING, 3 = only ERROR+FATAL
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+
+# --- Silence Python-level warnings (from warnings.warn) ---
+warnings.filterwarnings("ignore")
+
 import tensorflow as tf
 
 # Configure TensorFlow memory growth to prevent allocation warnings
-gpus = tf.config.list_physical_devices('GPU')
+gpus = tf.config.list_physical_devices("GPU")
 if gpus:
     try:
         for gpu in gpus:
