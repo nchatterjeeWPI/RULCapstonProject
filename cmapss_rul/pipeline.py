@@ -777,7 +777,7 @@ def test_and_evaluate(
         if not final_df_no_unc.empty:
             tmp = final_df_no_unc.copy()
             # abs_delta already exists from build_final_engine_table
-            print(f"\n[{arch.upper()}] Top 20 engines by |prediction error|:")
+            print(f"\n[{arch.upper()}] Top 20 engines by worst case |by prediction error|:")
             print(
                 tmp.sort_values("abs_delta", ascending=False)
                 .head(20)

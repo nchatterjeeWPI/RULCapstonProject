@@ -284,7 +284,7 @@ def tune(X_tr, y_tr, X_val, y_val, max_epochs=50, directory="tcn_tuning", projec
     tuner = kt.RandomSearch(
         build_model_wrapper,
         objective="val_loss",
-        max_trials=20,  # Limit number of trials
+        max_trials=20,
         executions_per_trial=1,
         directory=directory,
         project_name=project_name,
