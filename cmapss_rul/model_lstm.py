@@ -18,10 +18,29 @@ from typing import Tuple
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import Model
-from tensorflow.keras.layers import Input, LSTM, Dense, Dropout
+from tensorflow.keras.layers import Input, LSTM, Dense, Dropout, Bidirectional
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 
+# Option to switch between plain MSE and a RUL-weighted MSE
+USE_WEIGHTED_LOSS = True
+
+def weighted_mse(y_true, y_pred):
+    """
+    Weighted MSE that puts extra emphasis on lower/mid RUL values.
+
+    Adjust thresholds/weights as needed:
+      - <= 80 cycles: +0.5 weight
+      - <= 40 cycles: another +0.5 weight
+    """
+    y_true = tf.cast(y_true, tf.float32)
+    y_pred = tf.cast(y_pred, tf.float32)
+
+    w = tf.ones_like(y_true)
+    w += 0.5 * tf.cast(y_true <= 80.0, tf.float32)
+    w += 0.5 * tf.cast(y_true <= 40.0, tf.float32)
+
+    return tf.reduce_mean(w * tf.square(y_true - y_pred))
 
 # ===============================================================
 # 1) BUILD THE LSTM MODEL
@@ -73,7 +92,8 @@ def build_lstm(
     model = Model(inp, out)
     # Clip gradients (clipnorm) to improve stability on noisy sequences
     opt = Adam(learning_rate=lr, clipnorm=1.0)
-    model.compile(optimizer=opt, loss="mse", metrics=["mae"])
+    loss_fn = weighted_mse if USE_WEIGHTED_LOSS else "mse"
+    model.compile(optimizer=opt, loss=loss_fn, metrics=["mae"])
     return model
 
 
@@ -190,29 +210,56 @@ def tune(
         dropout = hp.Float("dropout", 0.1, 0.4, step=0.1)
         lr = hp.Float("lr", 1e-4, 3e-3, sampling="log")
         _ = hp.Choice("batch_size", [32, 64, 96])
+        bidirectional = hp.Boolean("bidirectional")
 
         tf.keras.backend.clear_session()
         inp = Input(shape=X_tr.shape[1:], dtype="float32")
 
-        x = LSTM(
-            lstm1_units,
-            return_sequences=True,
-            activation="tanh",
-            recurrent_activation="sigmoid",
-            use_bias=True,
-            dropout=0.0,
-            recurrent_dropout=0.0,
-        )(inp)
+        if bidirectional:
+            x = Bidirectional(
+                LSTM(
+                    lstm1_units,
+                    return_sequences=True,
+                    activation="tanh",
+                    recurrent_activation="sigmoid",
+                    use_bias=True,
+                    dropout=0.0,
+                    recurrent_dropout=0.0,
+                )
+            )(inp)
 
-        x = LSTM(
-            lstm2_units,
-            return_sequences=False,
-            activation="tanh",
-            recurrent_activation="sigmoid",
-            use_bias=True,
-            dropout=0.0,
-            recurrent_dropout=0.0,
-        )(x)
+            x = Bidirectional(
+                LSTM(
+                    lstm2_units,
+                    return_sequences=False,
+                    activation="tanh",
+                    recurrent_activation="sigmoid",
+                    use_bias=True,
+                    dropout=0.0,
+                    recurrent_dropout=0.0,
+                )
+            )(x)
+        else:
+            x = LSTM(
+                lstm1_units,
+                return_sequences=True,
+                activation="tanh",
+                recurrent_activation="sigmoid",
+                use_bias=True,
+                dropout=0.0,
+                recurrent_dropout=0.0,
+            )(inp)
+
+            x = LSTM(
+                lstm2_units,
+                return_sequences=False,
+                activation="tanh",
+                recurrent_activation="sigmoid",
+                use_bias=True,
+                dropout=0.0,
+                recurrent_dropout=0.0,
+            )(x)
+
 
         x = Dense(dense_units, activation="relu")(x)
         x = Dropout(dropout)(x)
@@ -220,7 +267,8 @@ def tune(
 
         model = Model(inp, out)
         opt = Adam(learning_rate=lr, clipnorm=1.0)
-        model.compile(optimizer=opt, loss="mse", metrics=["mae"])
+        loss_fn = weighted_mse if USE_WEIGHTED_LOSS else "mse"
+        model.compile(optimizer=opt, loss=loss_fn, metrics=["mae"])
         return model
 
     # Set up Hyperband tuner to minimize validation loss
@@ -236,13 +284,18 @@ def tune(
 
     # Still keep early stopping to save time on bad trials
     es = EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True)
-
+    rlrop = ReduceLROnPlateau(
+        monitor="val_loss",
+        factor=0.5,
+        patience=4,
+        min_lr=1e-5,
+    )
     # Run the hyperparameter search
     tuner.search(
         X_tr, y_tr,
         validation_data=(X_val, y_val),
         epochs=max_epochs,
-        callbacks=[es],
+        callbacks=[es, rlrop],
         verbose=1,
     )
 
@@ -261,7 +314,7 @@ def tune(
         validation_data=(X_val, y_val),
         epochs=max_epochs,
         batch_size=bs,
-        callbacks=[es],
+        callbacks=[es, rlrop],
         verbose=1,
     )
     return best_model, best_hp, tuner, history

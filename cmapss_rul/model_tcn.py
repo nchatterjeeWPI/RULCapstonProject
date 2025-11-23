@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 from typing import Optional, Tuple
+from collections.abc import Iterable
 import shutil
 from pathlib import Path
 
@@ -27,19 +28,24 @@ from tensorflow.keras.layers import (
     Dropout,
     Add,
     GlobalAveragePooling1D,
+    GlobalMaxPooling1D,
     Dense,
     BatchNormalization,
     Activation,
+    SpatialDropout1D,
+    Concatenate,
 )
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, Callback
-
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+from tensorflow.keras.regularizers import l2
 # Keras Tuner import (only needed if tune() is called)
 try:
     import keras_tuner as kt
-    KERAS_TUNER_AVAILABLE = True
 except ImportError:
-    KERAS_TUNER_AVAILABLE = False
+    kt = None  # fallback when keras-tuner is not installed
+
+KERAS_TUNER_AVAILABLE = kt is not None
+CallbackType = EarlyStopping | ReduceLROnPlateau
 
 
 # ===============================================================
@@ -59,22 +65,37 @@ def _residual_block(x, filters: int, kernel_size: int, dilation_rate: int, dropo
       - Add skip connection
     """
     # First causal conv stack
-    h = Conv1D(filters=filters, kernel_size=kernel_size, dilation_rate=dilation_rate,
-               padding="causal")(x)
+    h = Conv1D(
+        filters=filters,
+        kernel_size=kernel_size,
+        dilation_rate=dilation_rate,
+        padding="causal",
+        kernel_regularizer=l2(1e-4),
+    )(x)
     h = BatchNormalization()(h)
     h = Activation("relu")(h)
     h = Dropout(dropout)(h)
 
     # Second causal conv stack
-    h = Conv1D(filters=filters, kernel_size=kernel_size, dilation_rate=dilation_rate,
-               padding="causal")(h)
+    h = Conv1D(
+        filters=filters,
+        kernel_size=kernel_size,
+        dilation_rate=dilation_rate,
+        padding="causal",
+        kernel_regularizer=l2(1e-4),
+    )(h)
     h = BatchNormalization()(h)
     h = Activation("relu")(h)
     h = Dropout(dropout)(h)
 
     # If input channels != output channels, align with 1x1 conv so shapes match
     if x.shape[-1] != filters:
-        x = Conv1D(filters=filters, kernel_size=1, padding="same")(x)
+        x = Conv1D(
+            filters=filters,
+            kernel_size=1,
+            padding="same",
+            kernel_regularizer=l2(1e-4),
+        )(x)
 
     # Residual add: output = transformed(x) + (possibly projected) x
     return Add()([x, h])
@@ -86,12 +107,15 @@ def _residual_block(x, filters: int, kernel_size: int, dilation_rate: int, dropo
 # Stacks multiple residual blocks with increasing dilation (1, 2, 4, …),
 # then pools over time and finishes with a linear Dense(1) for RUL regression.
 # ---------------------------------------------------------------
-def build(input_shape: Tuple[int, int],
+def build(input_shape: Tuple[int, ...],
           filters: int = 48,
           blocks: int = 4,
           kernel_size: int = 5,
           dropout: float = 0.2,
-          lr: float = 1e-3) -> Model:
+          lr: float = 1e-3,
+          dense_units: int = 64,
+          ) -> Model:
+
     """
     Build a TCN-style 1D model for RUL regression.
 
@@ -102,13 +126,13 @@ def build(input_shape: Tuple[int, int],
         kernel_size: convolution kernel size
         dropout: dropout rate inside blocks
         lr: Adam learning rate
-
+        dense_units: number of units in the dense layer before the final output
     Returns:
         Compiled Keras Model.
     """
     inp = Input(shape=input_shape)
     x = inp
-
+    x = SpatialDropout1D(0.1)(x)
     # Stack residual blocks with exponentially increasing dilation
     for i in range(blocks):
         x = _residual_block(
@@ -120,7 +144,12 @@ def build(input_shape: Tuple[int, int],
         )
 
     # Pool feature maps over time to a single vector
-    x = GlobalAveragePooling1D()(x)
+    avg = GlobalAveragePooling1D()(x)
+    mx = GlobalMaxPooling1D()(x)
+    x = Concatenate()([avg, mx])
+
+    x = Dense(dense_units, activation="relu")(x)
+    x = Dropout(dropout)(x)
 
     # Final regression head: predict a single continuous RUL value
     out = Dense(1, activation="linear")(x)
@@ -151,7 +180,7 @@ def train_default(
     blocks: int = 4,
     kernel_size: int = 5,
     dropout: float = 0.2,
-    callbacks: Optional[list[Callback]] = None,
+    callbacks: Optional[Iterable[CallbackType]] = None,
 ):
     """
     Train the TCN with fixed hyperparameters.
@@ -170,7 +199,7 @@ def train_default(
     )
 
     # Default callbacks: early stopping + LR scheduler on validation loss
-    cb = [
+    cb: list[CallbackType] = [
         EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True),
         ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=5, min_lr=1e-5),
     ]
@@ -254,22 +283,28 @@ def tune(X_tr, y_tr, X_val, y_val, max_epochs=50, directory="tcn_tuning", projec
     # Create a wrapper function that uses the captured input_shape
     def build_model_wrapper(hp):
         # Define hyperparameter search space
-        filters = hp.Int("filters", min_value=32, max_value=64, step=16)
-        blocks = hp.Int("blocks", min_value=3, max_value=5)
+        filters = hp.Int("filters", min_value=48, max_value=128, step=16)
+        blocks = hp.Int("blocks", min_value=3, max_value=6)
         kernel_size = hp.Choice("kernel_size", values=[3, 5, 7])
-        dropout = hp.Float("dropout", min_value=0.1, max_value=0.4, step=0.1)
-        lr = hp.Float("lr", min_value=1e-4, max_value=1e-2, sampling="log")
-        
-        # Build model directly with the captured input_shape
+        dropout = hp.Float("dropout", min_value=0.1, max_value=0.5, step=0.1)
+        lr = hp.Float("lr", min_value=1e-4, max_value=3e-3, sampling="log")
+
+        # dense layer width for the head
+        dense_units = hp.Choice("dense_units", values=[32, 64, 96])
+
+        # optional: tune batch size too
+        hp.Choice("batch_size", values=[32, 64, 96])
+
         return build(
             input_shape=input_shape,
             filters=filters,
             blocks=blocks,
             kernel_size=kernel_size,
             dropout=dropout,
-            lr=lr
+            lr=lr,
+            dense_units= dense_units,
         )
-
+    '''
     tuner = kt.Hyperband(
         build_model_wrapper,
         objective="val_loss",
@@ -280,7 +315,7 @@ def tune(X_tr, y_tr, X_val, y_val, max_epochs=50, directory="tcn_tuning", projec
         overwrite=True,  # Start fresh to avoid shape conflicts
         hyperband_iterations=1 # Reduced from 2 for saving memory
     )
-    
+    '''
     tuner = kt.RandomSearch(
         build_model_wrapper,
         objective="val_loss",
@@ -306,8 +341,9 @@ def tune(X_tr, y_tr, X_val, y_val, max_epochs=50, directory="tcn_tuning", projec
     )
     
     best_hp = tuner.get_best_hyperparameters(num_trials=1)[0]
-    best_model = tuner.get_best_models(num_models=1)[0]
-    
+    # best_model = tuner.get_best_models(num_models=1)[0]
+    hp_values = best_hp.values
+    bs = hp_values.get("batch_size", 64)
     # Retrain best model from scratch to get full history
     print("\n[INFO] Retraining best model with full epochs...")
     # Build model directly using best hyperparameters
@@ -317,12 +353,14 @@ def tune(X_tr, y_tr, X_val, y_val, max_epochs=50, directory="tcn_tuning", projec
         blocks=best_hp.get("blocks"),
         kernel_size=best_hp.get("kernel_size"),
         dropout=best_hp.get("dropout"),
-        lr=best_hp.get("lr")
+        lr=best_hp.get("lr"),
+        dense_units=best_hp.get("dense_units"),
     )
     history = final_model.fit(
         X_tr, y_tr,
         validation_data=(X_val, y_val),
         epochs=max_epochs,
+        batch_size=bs,
         callbacks=[early_stop],
         verbose=1
     )
