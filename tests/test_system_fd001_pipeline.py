@@ -12,7 +12,7 @@ from cmapss_rul.pipeline import (
     apply_sensor_selection,
     sequence_generation,
     train_models,
-    test_and_evaluate,
+    run_evaluation,
     report_results
 )
 
@@ -29,7 +29,7 @@ def test_fd001_full_pipeline_end_to_end():
     # STEP 1: Simulate parsed arguments + config loading
 
     # NOTE: We call parse_arguments() directly so config is real
-    args, config = parse_arguments([])
+    args, config = parse_arguments()
 
     # Override config for faster system testing
     config["datasets"] = ["FD001"]
@@ -145,7 +145,7 @@ def test_fd001_full_pipeline_end_to_end():
 
     # STEP 13: Test & Evaluate
 
-    results = test_and_evaluate(
+    results = run_evaluation(
         trained_models, sequences_data,
         config["datasets"], output_dir, config
     )
