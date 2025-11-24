@@ -42,7 +42,7 @@ from cmapss_rul.pipeline import (
     apply_sensor_selection,
     sequence_generation,
     train_models,
-    test_and_evaluate,
+    run_evaluation,
     report_results
 )
 
@@ -116,7 +116,7 @@ def main():
         model.save(model_path)
 
     # 12. Test & evaluate
-    all_results = test_and_evaluate(
+    all_results = run_evaluation(
         trained_models, sequences_data, 
         config['datasets'], output_dir, config
     )
