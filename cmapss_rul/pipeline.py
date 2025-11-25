@@ -619,7 +619,7 @@ def train_models(
 # Test & Evaluate
 # ============================================================================
 
-def test_and_evaluate(
+def run_evaluation(
         trained_models: Dict[str, Any],
         sequences_data: Dict[str, Any],
         datasets: List[str],
@@ -935,7 +935,7 @@ def run_full_pipeline(
                                   use_tuning)
 
     # Evaluate
-    all_results = test_and_evaluate(trained_models, sequences_data, datasets,
+    all_results = run_evaluation(trained_models, sequences_data, datasets,
                                     output_dir)
 
     # Report
