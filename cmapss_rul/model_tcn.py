@@ -200,9 +200,12 @@ def train_default(
     )
 
     # Default callbacks: early stopping + LR scheduler on validation loss
+    # Short patience: validation usually peaks early on CMAPSS
     cb: list[CallbackType] = [
-        EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True),
-        ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=5, min_lr=1e-5),
+        EarlyStopping(monitor="val_loss", patience=3,
+                      restore_best_weights=True),
+        ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=2,
+                          min_lr=1e-5),
     ]
     if callbacks:
         cb.extend(callbacks)
@@ -274,7 +277,7 @@ def build_tcn_model(hp):
 #   tuner:      the tuner instance (for inspection / dashboards)
 #   history:    training history of best_model
 # ---------------------------------------------------------------
-def tune(X_tr, y_tr, X_val, y_val, max_epochs=50, directory="tcn_tuning", project_name="cmapss_tcn"):
+def tune(X_tr, y_tr, X_val, y_val, max_epochs: int=8, directory="tcn_tuning", project_name="cmapss_tcn"):
     """
     Hyperparameter tuning using Keras Tuner (Hyperband).
     Returns: (best_model, best_hyperparameters, tuner, history)
@@ -338,7 +341,7 @@ def tune(X_tr, y_tr, X_val, y_val, max_epochs=50, directory="tcn_tuning", projec
     )
     early_stop = EarlyStopping(
         monitor="val_loss",
-        patience=10,
+        patience=3,
         restore_best_weights=True
     )
     

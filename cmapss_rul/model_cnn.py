@@ -150,8 +150,8 @@ def train_default(
 
     # Default callbacks: early stopping + LR scheduler
     cb = [
-        EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True),
-        ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=5, min_lr=1e-5),
+        EarlyStopping(monitor="val_loss", patience=3, restore_best_weights=True),
+        ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=2, min_lr=1e-5),
     ]
     if callbacks:
         cb.extend(callbacks)
@@ -195,7 +195,7 @@ def tune(
     y_tr: np.ndarray,
     X_val: np.ndarray,
     y_val: np.ndarray,
-    max_epochs: int = 60,
+    max_epochs: int = 15,
     directory: str = "cnn_tuning",
     project_name: str = "cmapss_cnn",
 ):
@@ -236,7 +236,7 @@ def tune(
     )
 
     # Early stop inside the search to avoid wasting time on weak trials
-    es = EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True)
+    es = EarlyStopping(monitor="val_loss", patience=3, restore_best_weights=True)
 
     # Run the search
     tuner.search(

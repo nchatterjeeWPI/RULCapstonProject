@@ -144,8 +144,8 @@ def train_default(
     )
 
     # Callbacks: early stopping + LR scheduler
-    es = EarlyStopping(monitor="val_loss", patience=8, restore_best_weights=True)
-    rlrop = ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=4, min_lr=1e-5)
+    es = EarlyStopping(monitor="val_loss", patience=3, restore_best_weights=True)
+    rlrop = ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=2, min_lr=1e-5)
 
     # Build tf.data pipelines for Colab-friendly GPU training
     train_ds = tf.data.Dataset.from_tensor_slices((X_tr, y_tr))
@@ -187,7 +187,7 @@ def tune(
     y_tr: np.ndarray,
     X_val: np.ndarray,
     y_val: np.ndarray,
-    max_epochs: int = 60,
+    max_epochs: int = 12,
     directory: str = "lstm_tuning",
     project_name: str = "cmapss_lstm",
 ):
@@ -294,11 +294,11 @@ def tune(
     )
 
     # Still keep early stopping to save time on bad trials
-    es = EarlyStopping(monitor="val_loss", patience=10, restore_best_weights=True)
+    es = EarlyStopping(monitor="val_loss", patience=3, restore_best_weights=True)
     rlrop = ReduceLROnPlateau(
         monitor="val_loss",
         factor=0.5,
-        patience=4,
+        patience=2,
         min_lr=1e-5,
     )
     # Run the hyperparameter search

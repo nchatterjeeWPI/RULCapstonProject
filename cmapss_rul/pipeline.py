@@ -746,16 +746,27 @@ def train_models(
                 _save_history(history, logs_root / f"{arch}_train_history.csv")
 
 
+
         else:
+
             if hasattr(mod, "tune"):
                 print(
                     f"Performing hyperparameter tuning for {arch.upper()}..."
                 )
+                # Keep tuning runs short; validation peaks early on CMAPSS.
+                if arch == "tcn":
+                    max_epochs_tune = min(epochs, 8)
+                elif arch == "lstm":
+                    max_epochs_tune = min(epochs, 12)
+                elif arch == "cnn":
+                    max_epochs_tune = min(epochs, 15)
+                else:
+                    max_epochs_tune = epochs
                 best_model, best_hp, tuner, history = mod.tune(
                     X_train, y_train, X_val, y_val,
-                    max_epochs=epochs,
+                    max_epochs=max_epochs_tune,
                     directory=f"{arch}_tuning",
-                    project_name=proj
+                    project_name=proj,
                 )
                 model = best_model
                 try:
