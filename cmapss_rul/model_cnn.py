@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import numpy as np
 from typing import Optional, Tuple
+import tensorflow as tf
+from flatbuffers.packer import float32
 
 from tensorflow.keras import Model, Input
 from tensorflow.keras.layers import (
@@ -64,7 +66,7 @@ def build(
         Compiled Keras Model.
     """
     # Input tensor: a window of (sequence_length, num_features)
-    inp = Input(shape=input_shape)
+    inp = Input(shape=input_shape, dtype="float32")
 
     # Conv block #1 (causal so time t depends only on ≤ t)
     x = Conv1D(filters=filters, kernel_size=kernel_size, padding="causal")(inp)
@@ -88,7 +90,8 @@ def build(
 
     # Small dense head before the final linear regression output
     x = Dense(dense_units, activation="relu")(x)
-    out = Dense(1, activation="linear")(x)  # predict a single continuous RUL value
+    # Force output to float32 for stable loss/metrics under mixed precision
+    out = Dense(1, activation="linear", dtype="float32")(x)
 
     # Build + compile
     model = Model(inputs=inp, outputs=out)
@@ -153,13 +156,23 @@ def train_default(
     if callbacks:
         cb.extend(callbacks)
 
-    # Train the model
+    # Build tf.data pipelines for Colab-friendly GPU feeding
+    train_ds = tf.data.Dataset.from_tensor_slices((X_tr, y_tr))
+    val_ds = tf.data.Dataset.from_tensor_slices((X_val, y_val))
+
+    shuffle_buffer = min(len(X_tr), 10_000)
+    train_ds = (
+        train_ds
+        .shuffle(shuffle_buffer)
+        .batch(batch_size)
+        .prefetch(tf.data.AUTOTUNE)
+    )
+    val_ds = val_ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+
     history = model.fit(
-        X_tr,
-        y_tr,
-        validation_data=(X_val, y_val),
+        train_ds,
+        validation_data=val_ds,
         epochs=epochs,
-        batch_size=batch_size,
         callbacks=cb,
         verbose=1,
     )
@@ -243,12 +256,23 @@ def tune(
     hp_values = best_hp.values
     bs = hp_values.get("batch_size", 64)
 
+    # Optional Colab optimization: use tf.data for the final retrain
+    train_ds = tf.data.Dataset.from_tensor_slices((X_tr, y_tr))
+    val_ds = tf.data.Dataset.from_tensor_slices((X_val, y_val))
+
+    shuffle_buffer = min(len(X_tr), 10_000)
+    train_ds = (
+        train_ds
+        .shuffle(shuffle_buffer)
+        .batch(bs)
+        .prefetch(tf.data.AUTOTUNE)
+    )
+    val_ds = val_ds.batch(bs).prefetch(tf.data.AUTOTUNE)
+
     history = best_model.fit(
-        X_tr,
-        y_tr,
-        validation_data=(X_val, y_val),
+        train_ds,
+        validation_data=val_ds,
         epochs=max_epochs,
-        batch_size=bs,
         callbacks=[es],
         verbose=1,
     )

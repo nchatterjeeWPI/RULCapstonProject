@@ -22,6 +22,7 @@ import shutil
 from pathlib import Path
 
 import numpy as np
+import tensorflow as tf
 from tensorflow.keras import Model, Input
 from tensorflow.keras.layers import (
     Conv1D,
@@ -152,7 +153,7 @@ def build(input_shape: Tuple[int, ...],
     x = Dropout(dropout)(x)
 
     # Final regression head: predict a single continuous RUL value
-    out = Dense(1, activation="linear")(x)
+    out = Dense(1, activation="linear", dtype="float32")(x)
 
     # Build and compile the model
     model = Model(inputs=inp, outputs=out)
@@ -206,13 +207,23 @@ def train_default(
     if callbacks:
         cb.extend(callbacks)
 
-    # Fit the model
+    # Build tf.data pipelines to improve GPU utilization in Colab
+    train_ds = tf.data.Dataset.from_tensor_slices((X_tr, y_tr))
+    val_ds = tf.data.Dataset.from_tensor_slices((X_val, y_val))
+
+    shuffle_buffer = min(len(X_tr), 10_000)
+    train_ds = (
+        train_ds
+        .shuffle(shuffle_buffer)
+        .batch(batch_size)
+        .prefetch(tf.data.AUTOTUNE)
+    )
+    val_ds = val_ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+
     history = model.fit(
-        X_tr,
-        y_tr,
-        validation_data=(X_val, y_val),
+        train_ds,
+        validation_data=val_ds,
         epochs=epochs,
-        batch_size=batch_size,
         callbacks=cb,
         verbose=1,
     )
@@ -339,14 +350,12 @@ def tune(X_tr, y_tr, X_val, y_val, max_epochs=50, directory="tcn_tuning", projec
         callbacks=[early_stop],
         verbose=1
     )
-    
+
     best_hp = tuner.get_best_hyperparameters(num_trials=1)[0]
-    # best_model = tuner.get_best_models(num_models=1)[0]
     hp_values = best_hp.values
     bs = hp_values.get("batch_size", 64)
-    # Retrain best model from scratch to get full history
+
     print("\n[INFO] Retraining best model with full epochs...")
-    # Build model directly using best hyperparameters
     final_model = build(
         input_shape=input_shape,
         filters=best_hp.get("filters"),
@@ -356,13 +365,26 @@ def tune(X_tr, y_tr, X_val, y_val, max_epochs=50, directory="tcn_tuning", projec
         lr=best_hp.get("lr"),
         dense_units=best_hp.get("dense_units"),
     )
+
+    # Optional Colab optimization: tf.data pipeline for final retrain
+    train_ds = tf.data.Dataset.from_tensor_slices((X_tr, y_tr))
+    val_ds = tf.data.Dataset.from_tensor_slices((X_val, y_val))
+
+    shuffle_buffer = min(len(X_tr), 10_000)
+    train_ds = (
+        train_ds
+        .shuffle(shuffle_buffer)
+        .batch(bs)
+        .prefetch(tf.data.AUTOTUNE)
+    )
+    val_ds = val_ds.batch(bs).prefetch(tf.data.AUTOTUNE)
+
     history = final_model.fit(
-        X_tr, y_tr,
-        validation_data=(X_val, y_val),
+        train_ds,
+        validation_data=val_ds,
         epochs=max_epochs,
-        batch_size=bs,
         callbacks=[early_stop],
-        verbose=1
+        verbose=1,
     )
     
     return final_model, best_hp, tuner, history

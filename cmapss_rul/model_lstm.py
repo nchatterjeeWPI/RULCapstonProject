@@ -86,7 +86,7 @@ def build_lstm(
     x = Dense(dense_units, activation="relu")(x)
     x = Dropout(dropout)(x)
 
-    out = Dense(1, activation="linear")(x)
+    out = Dense(1, activation="linear", dtype="float32")(x)
 
     # Build and compile the model
     model = Model(inp, out)
@@ -147,12 +147,23 @@ def train_default(
     es = EarlyStopping(monitor="val_loss", patience=8, restore_best_weights=True)
     rlrop = ReduceLROnPlateau(monitor="val_loss", factor=0.5, patience=4, min_lr=1e-5)
 
-    # Train the model
+    # Build tf.data pipelines for Colab-friendly GPU training
+    train_ds = tf.data.Dataset.from_tensor_slices((X_tr, y_tr))
+    val_ds = tf.data.Dataset.from_tensor_slices((X_val, y_val))
+
+    shuffle_buffer = min(len(X_tr), 10_000)
+    train_ds = (
+        train_ds
+        .shuffle(shuffle_buffer)
+        .batch(batch_size)
+        .prefetch(tf.data.AUTOTUNE)
+    )
+    val_ds = val_ds.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+
     history = model.fit(
-        X_tr, y_tr,
-        validation_data=(X_val, y_val),
+        train_ds,
+        validation_data=val_ds,
         epochs=epochs,
-        batch_size=batch_size,
         callbacks=[es, rlrop],
         verbose=verbose,
     )
@@ -263,7 +274,7 @@ def tune(
 
         x = Dense(dense_units, activation="relu")(x)
         x = Dropout(dropout)(x)
-        out = Dense(1, activation="linear")(x)
+        out = Dense(1, activation="linear", dtype="float32")(x)
 
         model = Model(inp, out)
         opt = Adam(learning_rate=lr, clipnorm=1.0)
@@ -309,11 +320,23 @@ def tune(
     hp_values = best_hp.values  # this is just a regular dict
     bs = hp_values.get("batch_size", 64)
 
+    # Optional Colab optimization: tf.data pipeline for final retrain
+    train_ds = tf.data.Dataset.from_tensor_slices((X_tr, y_tr))
+    val_ds = tf.data.Dataset.from_tensor_slices((X_val, y_val))
+
+    shuffle_buffer = min(len(X_tr), 10_000)
+    train_ds = (
+        train_ds
+        .shuffle(shuffle_buffer)
+        .batch(bs)
+        .prefetch(tf.data.AUTOTUNE)
+    )
+    val_ds = val_ds.batch(bs).prefetch(tf.data.AUTOTUNE)
+
     history = best_model.fit(
-        X_tr, y_tr,
-        validation_data=(X_val, y_val),
+        train_ds,
+        validation_data=val_ds,
         epochs=max_epochs,
-        batch_size=bs,
         callbacks=[es, rlrop],
         verbose=1,
     )

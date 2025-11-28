@@ -32,6 +32,7 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 warnings.filterwarnings("ignore")
 
 import tensorflow as tf
+from tensorflow.keras import mixed_precision
 
 # Configure TensorFlow memory growth to prevent allocation warnings
 gpus = tf.config.list_physical_devices("GPU")
@@ -40,8 +41,14 @@ if gpus:
         for gpu in gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
         print(f"[INFO] Enabled memory growth for {len(gpus)} GPU(s)")
+
+        # Enable mixed precision on supported GPUs (Colab)
+        mixed_precision.set_global_policy("mixed_float16")
+        print("[INFO] Using mixed_float16 mixed-precision policy")
     except RuntimeError as e:
-        print(f"[WARNING] Could not enable memory growth: {e}")
+        print(f"[WARNING] Could not enable memory growth or mixed precision: {e}")
+else:
+    print("[INFO] No GPU detected; running on CPU-only.")
 
 
 from cmapss_rul.pipeline import (

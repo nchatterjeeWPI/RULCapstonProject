@@ -20,9 +20,23 @@ from sklearn.inspection import permutation_importance
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 import matplotlib.pyplot as plt
 
-# Force CPU-based Random Forest
-USE_GPU_RF = False
-print("[INFO] Using CPU-based Random Forest (scikit-learn)")
+# Optional GPU-based Random Forest via RAPIDS cuML (Colab)
+USE_GPU_RF = False  # set to True manually *and* install cuML to enable
+
+try:
+    from cuml.ensemble import RandomForestRegressor as CUMLRandomForestRegressor  # type: ignore
+    GPU_RF_AVAILABLE = True
+except Exception:
+    CUMLRandomForestRegressor = None  # type: ignore
+    GPU_RF_AVAILABLE = False
+
+if USE_GPU_RF and GPU_RF_AVAILABLE:
+    print("[INFO] Using GPU-based Random Forest (cuML)")
+elif USE_GPU_RF and not GPU_RF_AVAILABLE:
+    print("[WARNING] USE_GPU_RF=True but cuML is not available; falling back to CPU scikit-learn.")
+    print("[INFO] Using CPU-based Random Forest (scikit-learn)")
+else:
+    print("[INFO] Using CPU-based Random Forest (scikit-learn)")
 
 
 # import seaborn as sns
@@ -98,15 +112,23 @@ def random_forest_importance(
     y_val = val_df[rul_col].values
 
     print(f"Training Random Forest with {n_estimators} trees...")
-    print("[INFO] Using CPU-based Random Forest (scikit-learn)")
-    
-    rf = RandomForestRegressor(
-        n_estimators=n_estimators,
-        random_state=random_state,
-        n_jobs=-1,  # Use all CPU cores
-        max_depth=15,
-        min_samples_split=10
-    )
+
+    if USE_GPU_RF and GPU_RF_AVAILABLE and CUMLRandomForestRegressor is not None:
+        print("[INFO] Using GPU-based Random Forest (cuML)")
+        rf = CUMLRandomForestRegressor(
+            n_estimators=n_estimators,
+            random_state=random_state,
+            max_depth=15,
+        )
+    else:
+        print("[INFO] Using CPU-based Random Forest (scikit-learn)")
+        rf = RandomForestRegressor(
+            n_estimators=n_estimators,
+            random_state=random_state,
+            n_jobs=-1,  # Use all CPU cores
+            max_depth=15,
+            min_samples_split=10,
+        )
 
     rf.fit(X_train, y_train)
 
@@ -240,17 +262,24 @@ def ablation_study(
     X_val = val_df[sensor_cols].values
     y_val = val_df[rul_col].values
 
-    # Baseline with all sensors
     print("Training baseline model with all sensors...")
-    print("[INFO] Using CPU-based Random Forest (scikit-learn)")
-    
-    rf_baseline = RandomForestRegressor(
-        n_estimators=50,
-        random_state=random_state,
-        n_jobs=-1,
-        max_depth=15,
-        min_samples_split=10
-    )
+
+    if USE_GPU_RF and GPU_RF_AVAILABLE and CUMLRandomForestRegressor is not None:
+        print("[INFO] Using GPU-based Random Forest (cuML)")
+        rf_baseline = CUMLRandomForestRegressor(
+            n_estimators=50,
+            random_state=random_state,
+            max_depth=15,
+        )
+    else:
+        print("[INFO] Using CPU-based Random Forest (scikit-learn)")
+        rf_baseline = RandomForestRegressor(
+            n_estimators=50,
+            random_state=random_state,
+            n_jobs=-1,
+            max_depth=15,
+            min_samples_split=10,
+        )
 
     rf_baseline.fit(X_train, y_train)
     baseline_rmse = np.sqrt(
@@ -274,13 +303,24 @@ def ablation_study(
         X_train_ablated = train_df[cols_without].values
         X_val_ablated = val_df[cols_without].values
 
-        rf = RandomForestRegressor(
-            n_estimators=50,
-            random_state=random_state,
-            n_jobs=-1,
-            max_depth=15,
-            min_samples_split=10
-        )
+        print("Training baseline model with all sensors...")
+
+        if USE_GPU_RF and GPU_RF_AVAILABLE and CUMLRandomForestRegressor is not None:
+            print("[INFO] Using GPU-based Random Forest (cuML)")
+            rf_baseline = CUMLRandomForestRegressor(
+                n_estimators=50,
+                random_state=random_state,
+                max_depth=15,
+            )
+        else:
+            print("[INFO] Using CPU-based Random Forest (scikit-learn)")
+            rf_baseline = RandomForestRegressor(
+                n_estimators=50,
+                random_state=random_state,
+                n_jobs=-1,
+                max_depth=15,
+                min_samples_split=10,
+            )
 
         rf.fit(X_train_ablated, y_train)
         rmse = np.sqrt(mean_squared_error(y_val, rf.predict(X_val_ablated)))
@@ -566,7 +606,14 @@ def run_full_analysis(
     print(f"Analyzing {len(sensor_cols)} sensors")
     print(f"Training samples: {len(train_df)}")
     print(f"Validation samples: {len(val_df)}")
-    print("GPU-accelerated Random Forest: DISABLED (using scikit-learn CPU)")
+    if USE_GPU_RF and GPU_RF_AVAILABLE:
+        print("GPU-accelerated Random Forest: ENABLED (cuML)")
+    elif USE_GPU_RF and not GPU_RF_AVAILABLE:
+        print(
+            "GPU-accelerated Random Forest: REQUESTED, but cuML not available — using scikit-learn CPU")
+    else:
+        print(
+            "GPU-accelerated Random Forest: DISABLED (using scikit-learn CPU)")
 
     results = {}
 
