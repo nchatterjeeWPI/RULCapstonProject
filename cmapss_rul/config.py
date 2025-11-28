@@ -46,6 +46,7 @@ class DefaultConfig:
     cap: int = 125
     val_size: float = 0.2
     datasets: List[str] = tuple(ALL_FD)
+    cv_folds: int = 1
 
     # Uncertainty defaults
     uncertainty_method: Literal["none", "conformal", "mc"] = "conformal"

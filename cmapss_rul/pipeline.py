@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import GroupShuffleSplit
+from sklearn.model_selection import GroupShuffleSplit, GroupKFold
 import json
 from . import preprocess, regimes, sequences, eval as eval_module, \
     sensor_analysis
@@ -79,6 +79,9 @@ def parse_arguments() -> Tuple[Any, Dict[str, Any]]:
     if mc_samples is None:
         mc_samples = DEFAULT.mc_samples
     clip_pred = getattr(DEFAULT, "clip_pred", True)
+    cv_folds = getattr(args, "cv_folds", None)
+    if cv_folds is None:
+        cv_folds = DEFAULT.cv_folds
 
     config = {
         'architectures': architectures,
@@ -95,6 +98,7 @@ def parse_arguments() -> Tuple[Any, Dict[str, Any]]:
         'alpha': float(alpha),
         'mc_samples': int(mc_samples),
         'clip_pred': bool(clip_pred),
+        'cv_folds': int(cv_folds),
     }
 
     print(f"Architectures: {architectures}")
@@ -104,6 +108,7 @@ def parse_arguments() -> Tuple[Any, Dict[str, Any]]:
     print(f"Regimes (K): {K}")
     print(f"RUL Cap: {cap_val}")
     print(f"Val Size: {val_size}")
+    print(f"CV Folds: {cv_folds}")
     print(f"Tuning: {'ON' if use_tuning else 'OFF'}")
     print(f"Use Common Sensors: {'YES' if use_common_sensors else 'NO'}")
     print(f"Run Sensor Analysis: {'YES' if use_common_sensors else 'NO'}")
@@ -525,10 +530,10 @@ def sequence_generation(
     print(f"Total features: {len(feature_cols)}")
 
     # Create sequences
-    X_tr, y_tr, _ = sequences.create_sequences(train_df, feature_cols,
-                                               sequence_length)
-    X_val, y_val, _ = sequences.create_sequences(val_df, feature_cols,
-                                                 sequence_length)
+    X_tr, y_tr, eids_tr = sequences.create_sequences(train_df, feature_cols,
+                                                     sequence_length)
+    X_val, y_val, eids_val = sequences.create_sequences(val_df, feature_cols,
+                                                        sequence_length)
 
     print(f"Train windows: {X_tr.shape}")
     print(f"Val windows: {X_val.shape}")
@@ -539,14 +544,16 @@ def sequence_generation(
                                                    feature_cols)
 
     return {
-        'X_train': X_tr,
-        'y_train': y_tr,
-        'X_val': X_val,
-        'y_val': y_val,
-        'X_test_dict': X_te_dict,
-        'y_test_dict': y_te_dict,
-        'engine_ids_test_dict': engine_ids_te_dict,
-        'last_idx_map': last_idx_map,
+        "X_train": X_tr,
+        "y_train": y_tr,
+        "X_val": X_val,
+        "y_val": y_val,
+        "train_eids": eids_tr,
+        "val_eids": eids_val,
+        "X_test_dict": X_te_dict,
+        "y_test_dict": y_te_dict,
+        "engine_ids_test_dict": engine_ids_te_dict,
+        "last_idx_map": last_idx_map,
         "feature_cols": feature_cols,
     }
 
@@ -568,15 +575,77 @@ def _save_history(history, path: Path) -> None:
     df.to_csv(path, index=False)
     print(f"[INFO] Saved training history to: {path}")
 
+def _save_cv_scores(arch: str, fold_scores, logs_root: Path) -> None:
+    if not fold_scores:
+        return
+    df = pd.DataFrame(
+        {
+            "fold": np.arange(1, len(fold_scores) + 1),
+            "val_loss": fold_scores,
+        }
+    )
+    logs_root.mkdir(parents=True, exist_ok=True)
+    out = logs_root / f"{arch}_cv_scores.csv"
+    df.to_csv(out, index=False)
+    print(f"[CV] Saved {arch} CV scores to {out}")
 # ============================================================================
 # Train Models
 # ============================================================================
+
+def cross_validate_model(mod, X, y, eids, epochs: int = 50, n_splits: int = 5):
+    """
+    Perform group-wise K-fold CV over engines.
+
+    Args:
+        mod: model module (model_tcn, model_lstm, model_cnn)
+        X, y: training windows + targets
+        eids: array of (dataset, engine_id) for each window
+        epochs: training epochs
+        n_splits: number of folds
+
+    Returns:
+        best_model: model from the best-performing fold
+        fold_scores: list of validation losses per fold
+    """
+    # Build group labels like "FD001_12"
+    groups = np.array([f"{ds}_{int(eid)}" for ds, eid in eids], dtype=object)
+
+    gkf = GroupKFold(n_splits=n_splits)
+    fold_models = []
+    fold_scores = []
+
+    for fold_idx, (tr_idx, val_idx) in enumerate(gkf.split(X, y, groups=groups), start=1):
+        print(f"\n[CV] Fold {fold_idx}/{n_splits} — "
+              f"train windows={len(tr_idx)}, val windows={len(val_idx)}")
+
+        X_tr, y_tr = X[tr_idx], y[tr_idx]
+        X_val, y_val = X[val_idx], y[val_idx]
+
+        # Use your existing architecture-specific train_default()
+        model, history = mod.train_default(
+            X_tr, y_tr, X_val, y_val, epochs=epochs
+        )
+
+        # Assuming Keras History
+        val_loss = history.history.get("val_loss", [np.nan])[-1]
+        print(f"[CV] Fold {fold_idx} val_loss={val_loss:.4f}")
+        fold_models.append(model)
+        fold_scores.append(val_loss)
+
+    # Pick the model with the best validation score
+    best_fold = int(np.nanargmin(fold_scores))
+    best_model = fold_models[best_fold]
+    print(f"[CV] Best fold: {best_fold + 1} with val_loss={fold_scores[best_fold]:.4f}")
+
+    return best_model, fold_scores
+
 
 def train_models(
         sequences_data: Dict[str, Any],
         architectures: List[str],
         epochs: int,
-        use_tuning: bool
+        use_tuning: bool,
+        cv_folds: int = 1,
 ) -> Dict[str, Any]:
     """
     Train models for all specified architectures.
@@ -599,6 +668,8 @@ def train_models(
 
     X_train = sequences_data['X_train']
     y_train = sequences_data['y_train']
+    train_eids = sequences_data['train_eids']
+
     X_val = sequences_data['X_val']
     y_val = sequences_data['y_val']
 
@@ -622,11 +693,24 @@ def train_models(
 
         # Train
         if not use_tuning:
-            print(f"Training {arch.upper()} with fixed hyperparameters...")
-            model, history = mod.train_default(X_train, y_train, X_val, y_val,
-                                               epochs=epochs)
-            # Save training history
-            _save_history(history, logs_root / f"{arch}_train_history.csv")
+            if cv_folds > 1:
+                print(f"Using {cv_folds}-fold engine-wise cross-validation...")
+                model, fold_scores = cross_validate_model(
+                    mod,
+                    X_train,
+                    y_train,
+                    train_eids,
+                    epochs=epochs,
+                    n_splits=cv_folds,
+                )
+                _save_cv_scores(arch, fold_scores, logs_root)
+
+            else:
+                print("Training with single train/val split...")
+                model, history = mod.train_default(
+                    X_train, y_train, X_val, y_val, epochs=epochs
+                )
+                _save_history(history, logs_root / f"{arch}_train_history.csv")
 
         else:
             if hasattr(mod, "tune"):

@@ -67,6 +67,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--alpha", type=float, default=None,
                         help="(1 - alpha) = target coverage; e.g., alpha=0.1 -> ~90% interval")
     parser.add_argument("--mc-samples", type=int, default=None, help="T: number of MC dropout samples")
+    parser.add_argument(
+        "--cv-folds",
+        type=int,
+        default=None,
+        help=(
+            "Number of folds for engine-wise cross-validation on the training set. "
+            "Use 1 to disable CV (single train/val split)."
+        ),
+    )
 
     return parser
 

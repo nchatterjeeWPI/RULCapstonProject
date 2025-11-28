@@ -145,6 +145,7 @@ def main():
         config["architectures"],
         config["epochs"],
         config["use_tuning"],
+        cv_folds=config["cv_folds"],
     )
 
     # 11b. Save models + metadata
