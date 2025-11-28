@@ -588,6 +588,39 @@ def _save_cv_scores(arch: str, fold_scores, logs_root: Path) -> None:
     out = logs_root / f"{arch}_cv_scores.csv"
     df.to_csv(out, index=False)
     print(f"[CV] Saved {arch} CV scores to {out}")
+
+def _save_best_hyperparameters(arch: str, best_hp, logs_root: Path) -> None:
+    """
+    Save the best hyperparameters from a KerasTuner run as JSON.
+
+    Args:
+        arch: Architecture name ("tcn", "lstm", "cnn", etc.)
+        best_hp: KerasTuner HyperParameters object (or a dict-like)
+        logs_root: Base directory for training logs
+    """
+    if best_hp is None:
+        return
+
+    try:
+        # KerasTuner HyperParameters has a `.values` dict
+        values = getattr(best_hp, "values", None)
+        if values is None:
+            # Fallback if we ever pass in a plain dict
+            if isinstance(best_hp, dict):
+                values = best_hp
+            else:
+                return
+
+        logs_root.mkdir(parents=True, exist_ok=True)
+        out = logs_root / f"{arch}_best_hyperparameters.json"
+
+        with out.open("w", encoding="utf-8") as f:
+            json.dump(values, f, indent=2)
+
+        print(f"[TUNING] Saved {arch} best hyperparameters to {out}")
+    except Exception as e:
+        print(f"[WARN] Could not save best hyperparameters for {arch}: {e}")
+
 # ============================================================================
 # Train Models
 # ============================================================================
@@ -712,10 +745,12 @@ def train_models(
                 )
                 _save_history(history, logs_root / f"{arch}_train_history.csv")
 
+
         else:
             if hasattr(mod, "tune"):
                 print(
-                    f"Performing hyperparameter tuning for {arch.upper()}...")
+                    f"Performing hyperparameter tuning for {arch.upper()}..."
+                )
                 best_model, best_hp, tuner, history = mod.tune(
                     X_train, y_train, X_val, y_val,
                     max_epochs=epochs,
@@ -727,18 +762,21 @@ def train_models(
                     print("Best hyperparameters:", best_hp.values)
                 except Exception:
                     pass
+                # persist best hyperparameters to _outputs/training_logs
+                _save_best_hyperparameters(arch, best_hp, logs_root)
+
                 # Save tuning/selected-model history if available
-                _save_history(history, logs_root / f"{arch}_tuning_history.csv")
+                _save_history(history,
+                              logs_root / f"{arch}_tuning_history.csv")
             else:
                 print(
-                    f"[WARN] Tuning not implemented for '{arch}'. Using fixed hyperparameters.")
-                model, history = mod.train_default(X_train, y_train, X_val,
-                                                   y_val,
-                                                   epochs=epochs)
+                    f"[WARN] Tuning not implemented for '{arch}'. Using fixed hyperparameters."
+                )
+                model, history = mod.train_default(
+                    X_train, y_train, X_val, y_val, epochs=epochs
+                )
                 _save_history(history, logs_root / f"{arch}_train_history.csv")
-
         trained_models[arch] = model
-
     return trained_models
 
 
