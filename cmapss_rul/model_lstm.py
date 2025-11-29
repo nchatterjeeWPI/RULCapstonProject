@@ -51,12 +51,12 @@ def weighted_mse(y_true, y_pred):
 # ---------------------------------------------------------------
 def build_lstm(
     input_shape: Tuple[int, int],
-    lstm1_units: int = 64,
-    lstm2_units: int = 32,
-    dense_units: int = 64,
-    dropout: float = 0.2,
+    lstm1_units: int = 32,
+    lstm2_units: int = 48,
+    dense_units: int = 128,
+    dropout: float = 0.1,
     recurrent_dropout: float = 0.0,  # kept for API compatibility
-    lr: float = 1e-3,
+    lr: float = 0.0003837216984765615,
 ) -> Model:
     tf.keras.backend.clear_session()
     inp = Input(shape=input_shape, dtype="float32")
@@ -112,7 +112,7 @@ def train_default(
     y_val: np.ndarray,
     epochs: int = 60,
     batch_size: int = 64,
-    lr: float = 1e-3,
+    lr: float = 0.0003837216984765615,
     verbose: int = 1,
     **kwargs,  # absorbs unexpected keywords like max_epochs
 ):
@@ -135,10 +135,10 @@ def train_default(
     # Build a fresh LSTM model for these shapes/hyperparams
     model = build_lstm(
         input_shape=X_tr.shape[1:],
-        lstm1_units=64,
-        lstm2_units=32,
-        dense_units=64,
-        dropout=0.2,
+        lstm1_units=32,
+        lstm2_units=48,
+        dense_units=128,
+        dropout=0.1,
         recurrent_dropout=0,
         lr=lr,
     )

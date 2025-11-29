@@ -109,12 +109,12 @@ def _residual_block(x, filters: int, kernel_size: int, dilation_rate: int, dropo
 # then pools over time and finishes with a linear Dense(1) for RUL regression.
 # ---------------------------------------------------------------
 def build(input_shape: Tuple[int, ...],
-          filters: int = 48,
-          blocks: int = 4,
-          kernel_size: int = 5,
-          dropout: float = 0.2,
-          lr: float = 1e-3,
-          dense_units: int = 64,
+          filters: int = 96,
+          blocks: int = 5,
+          kernel_size: int = 7,
+          dropout: float = 0.1,
+          lr: float = 0.00045259766601828393,
+          dense_units: int = 96,
           ) -> Model:
 
     """
@@ -176,11 +176,11 @@ def train_default(
     *,
     epochs: int = 60,
     batch_size: int = 64,
-    lr: float = 1e-3,
-    filters: int = 48,
-    blocks: int = 4,
-    kernel_size: int = 5,
-    dropout: float = 0.2,
+    lr: float = 0.00045259766601828393,
+    filters: int = 96,
+    blocks: int = 5,
+    kernel_size: int = 7,
+    dropout: float = 0.1,
     callbacks: Optional[Iterable[CallbackType]] = None,
 ):
     """

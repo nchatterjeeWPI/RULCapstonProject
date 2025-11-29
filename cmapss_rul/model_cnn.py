@@ -45,11 +45,11 @@ from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau, Callbac
 # ---------------------------------------------------------------
 def build(
     input_shape: Tuple[int, int],
-    filters: int = 64,
-    kernel_size: int = 5,
+    filters: int = 48,
+    kernel_size: int = 7,
     dropout: float = 0.2,
-    dense_units: int = 64,
-    lr: float = 1e-3
+    dense_units: int = 96,
+    lr: float = 0.0002681452735066759
 ) -> Model:
     """
     Build a simple 1D CNN for RUL regression.
@@ -115,11 +115,11 @@ def train_default(
     *,
     epochs: int = 60,
     batch_size: int = 64,
-    lr: float = 1e-3,
-    filters: int = 64,
-    kernel_size: int = 5,
+    lr: float = 0.0002681452735066759,
+    filters: int = 48,
+    kernel_size: int = 7,
     dropout: float = 0.2,
-    dense_units: int = 64,
+    dense_units: int = 96,
     callbacks: Optional[list[Callback]] = None,
 ) -> Tuple[Model, any]:
     """
