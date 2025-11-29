@@ -9,7 +9,7 @@ This module provides multiple methods to analyze which sensors have the most imp
 """
 
 from __future__ import annotations
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Any
 from pathlib import Path
 
 import numpy as np
@@ -303,18 +303,18 @@ def ablation_study(
         X_train_ablated = train_df[cols_without].values
         X_val_ablated = val_df[cols_without].values
 
-        print("Training baseline model with all sensors...")
+        print(f"Training ablated model without {sensor}...")
 
         if USE_GPU_RF and GPU_RF_AVAILABLE and CUMLRandomForestRegressor is not None:
-            print("[INFO] Using GPU-based Random Forest (cuML)")
-            rf_baseline = CUMLRandomForestRegressor(
+            # print("[INFO] Using GPU-based Random Forest (cuML)")
+            rf_ablated = CUMLRandomForestRegressor(
                 n_estimators=50,
                 random_state=random_state,
                 max_depth=15,
             )
         else:
-            print("[INFO] Using CPU-based Random Forest (scikit-learn)")
-            rf_baseline = RandomForestRegressor(
+            # print("[INFO] Using CPU-based Random Forest (scikit-learn)")
+            rf_ablated = RandomForestRegressor(
                 n_estimators=50,
                 random_state=random_state,
                 n_jobs=-1,
@@ -322,8 +322,8 @@ def ablation_study(
                 min_samples_split=10,
             )
 
-        rf.fit(X_train_ablated, y_train)
-        rmse = np.sqrt(mean_squared_error(y_val, rf.predict(X_val_ablated)))
+        rf_ablated.fit(X_train_ablated, y_train)
+        rmse = np.sqrt(mean_squared_error(y_val, rf_ablated.predict(X_val_ablated)))
 
         ablation_results.append({
             'sensor': sensor,
