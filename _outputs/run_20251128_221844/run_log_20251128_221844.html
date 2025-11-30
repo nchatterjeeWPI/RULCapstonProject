@@ -1,0 +1,374 @@
+2025-11-28 22:18:51.251029: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:467] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+E0000 00:00:1764368331.270601   23714 cuda_dnn.cc:8579] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+E0000 00:00:1764368331.276562   23714 cuda_blas.cc:1407] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+W0000 00:00:1764368331.291996   23714 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1764368331.292023   23714 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1764368331.292025   23714 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1764368331.292027   23714 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+[INFO] Enabled memory growth for 1 GPU(s)
+[INFO] Using mixed_float16 mixed-precision policy
+[INFO] Using CPU-based Random Forest (scikit-learn)
+
+======================================================================
+STEP 1: PARSE COMMAND-LINE ARGUMENTS
+======================================================================
+Parser fields:
+  download: False
+  github_token: None
+  out: _outputs/run_20251128_221844
+  arch: ['tcn']
+  epochs: 5
+  sequence_length: 50
+  regimes_k: 6
+  val_size: 0.2
+  cap: None
+  datasets: ['FD001']
+  tuning: off
+  use_common_sensors: True
+  uncertainty: None
+  alpha: None
+  mc_samples: None
+  cv_folds: None
+Architectures: ['tcn']
+Datasets: ['FD001']
+Epochs: 5
+Sequence Length: 50
+Regimes (K): 6
+RUL Cap: 125
+Val Size: 0.2
+CV Folds: 1
+Tuning: OFF
+Use Common Sensors: YES
+Run Sensor Analysis: YES
+Uncertainty: method=conformal | alpha=0.1 | mc_samples=50 | clip_pred=True
+
+======================================================================
+STEP 2: SETUP & DOWNLOAD
+======================================================================
+[INFO] Skipping download
+Data directory: CMAPSS/RAW_DATA/CMaps
+Output directory: _outputs/run_20251128_221844
+[INFO] Saved run configuration to: _outputs/run_20251128_221844/run_config.json
+
+======================================================================
+STEP 3: LOAD DATA
+======================================================================
+Loaded 1 training datasets
+Loaded 1 test datasets
+Loaded 1 RUL datasets
+
+======================================================================
+STEP 4: BASIC EXPLORATION
+======================================================================
+[INFO] Inspecting training datasets...
+
+--- Dataset: FD001 ---
+Shape: (20631, 26)
+Columns: ['engine_id', 'cycle', 'op_setting_1', 'op_setting_2', 'op_setting_3', 'sensor_1', 'sensor_2', 'sensor_3', 'sensor_4', 'sensor_5'] ...
+Missing values: 0
+Duplicate rows: 0
+   engine_id  cycle  op_setting_1  ...  sensor_19  sensor_20  sensor_21
+0          1      1       -0.0007  ...      100.0      39.06    23.4190
+1          1      2        0.0019  ...      100.0      39.00    23.4236
+2          1      3       -0.0043  ...      100.0      38.95    23.3442
+
+[3 rows x 26 columns]
+Missing/Duplicate report: {'FD001': {'train_missing': 0, 'test_missing': 0, 'train_dupes': 0, 'test_dupes': 0}}
+Non-constant sensors identified: 15
+
+======================================================================
+STEP 5: PREPROCESS
+======================================================================
+Keeping 15 sensors
+Computing RUL values...
+Capping RUL at 125
+
+======================================================================
+STEP 6: TRAIN/VAL SPLIT
+======================================================================
+Train samples: 16592
+Validation samples: 4039
+
+[INFO] Identified 15 sensor columns
+
+======================================================================
+STEP 8: SENSOR ANALYSIS (FEATURE SELECTION)
+======================================================================
+
+============================================================
+SENSOR IMPORTANCE ANALYSIS
+============================================================
+Analyzing 15 sensors
+Training samples: 16592
+Validation samples: 4039
+GPU-accelerated Random Forest: DISABLED (using scikit-learn CPU)
+
+============================================================
+CORRELATION ANALYSIS
+============================================================
+
+Top 10 sensors by correlation with RUL:
+   sensor  correlation  abs_correlation
+sensor_11    -0.771646         0.771646
+ sensor_4    -0.754280         0.754280
+sensor_12     0.742888         0.742888
+ sensor_7     0.728917         0.728917
+sensor_15    -0.716265         0.716265
+sensor_21     0.706024         0.706024
+sensor_20     0.702989         0.702989
+sensor_17    -0.679255         0.679255
+ sensor_2    -0.676043         0.676043
+ sensor_3    -0.656236         0.656236
+
+============================================================
+RANDOM FOREST FEATURE IMPORTANCE
+============================================================
+Training Random Forest with 100 trees...
+[INFO] Using CPU-based Random Forest (scikit-learn)
+Validation RMSE: 19.44
+Validation MAE: 13.41
+
+Top 10 sensors by Random Forest importance:
+   sensor  importance
+sensor_11    0.587354
+ sensor_9    0.147452
+ sensor_4    0.094031
+sensor_12    0.033276
+sensor_14    0.025107
+ sensor_7    0.024822
+sensor_15    0.016401
+sensor_21    0.013383
+ sensor_2    0.011646
+ sensor_3    0.011588
+
+============================================================
+PERMUTATION IMPORTANCE ANALYSIS
+============================================================
+Training model...
+[INFO] Using CPU-based Random Forest (scikit-learn)
+Computing permutation importance (n_repeats=10)...
+I0000 00:00:1764368369.680759   23714 gpu_device.cc:2019] Created device /job:localhost/replica:0/task:0/device:GPU:0 with 79261 MB memory:  -> device: 0, name: NVIDIA A100-SXM4-80GB, pci bus id: 0000:00:05.0, compute capability: 8.0
+
+Top 10 sensors by permutation importance:
+   sensor  importance_mean  importance_std
+sensor_11         0.167634        0.006340
+ sensor_9         0.123349        0.002666
+sensor_12         0.037489        0.002646
+ sensor_4         0.035175        0.003121
+ sensor_7         0.018944        0.002260
+sensor_15         0.010363        0.001157
+sensor_13         0.008949        0.001116
+sensor_21         0.008174        0.001081
+ sensor_2         0.007767        0.000677
+sensor_20         0.007689        0.001070
+
+============================================================
+ABLATION STUDY (Top 10 sensors)
+============================================================
+Training baseline model with all sensors...
+[INFO] Using CPU-based Random Forest (scikit-learn)
+Baseline RMSE: 19.50
+
+Testing ablation on top 10 sensors...
+Training ablated model without sensor_11...
+Training ablated model without sensor_9...
+Training ablated model without sensor_4...
+Training ablated model without sensor_12...
+Training ablated model without sensor_7...
+Training ablated model without sensor_14...
+Training ablated model without sensor_15...
+Training ablated model without sensor_21...
+Training ablated model without sensor_2...
+Training ablated model without sensor_3...
+
+Top sensors by performance drop when removed:
+   sensor  rmse_without  rmse_increase  percent_increase
+sensor_12     19.706556       0.204843          1.050383
+sensor_15     19.643225       0.141512          0.725641
+ sensor_7     19.624719       0.123006          0.630743
+ sensor_2     19.621726       0.120013          0.615397
+sensor_21     19.615848       0.114136          0.585260
+sensor_11     19.587272       0.085559          0.438725
+ sensor_4     19.531556       0.029843          0.153027
+sensor_14     19.490238      -0.011475         -0.058842
+ sensor_3     19.480504      -0.021209         -0.108755
+ sensor_9     19.396819      -0.104894         -0.537869
+
+============================================================
+GENERATING PLOTS
+============================================================
+Saved plot: _outputs/run_20251128_221844/sensor_analysis/sensor_importance_comparison.png
+Saved: _outputs/run_20251128_221844/sensor_analysis/sensor_correlation.csv
+Saved: _outputs/run_20251128_221844/sensor_analysis/sensor_rf_importance.csv
+Saved: _outputs/run_20251128_221844/sensor_analysis/sensor_perm_importance.csv
+Saved: _outputs/run_20251128_221844/sensor_analysis/sensor_ablation.csv
+
+============================================================
+SUMMARY: TOP 5 SENSORS BY EACH METHOD
+============================================================
+
+By Correlation:
+sensor_11, sensor_4, sensor_12, sensor_7, sensor_15
+
+By RF Importance:
+sensor_11, sensor_9, sensor_4, sensor_12, sensor_14
+
+By Permutation Importance:
+sensor_11, sensor_9, sensor_12, sensor_4, sensor_7
+
+By Ablation Study:
+sensor_12, sensor_15, sensor_7, sensor_2, sensor_21
+
+============================================================
+FINDING COMMON SENSORS ACROSS METHODS
+============================================================
+
+Sensors appearing in top 5 of ALL 4 methods:
+sensor_12
+
+Sensors appearing in top 5 of at least 3 methods:
+sensor_11, sensor_12, sensor_4, sensor_7
+
+Detailed breakdown:
+  sensor_11: 3/4 methods (correlation, rf_importance, perm_importance)
+  sensor_12: 4/4 methods (correlation, rf_importance, perm_importance, ablation)
+  sensor_4: 3/4 methods (correlation, rf_importance, perm_importance)
+  sensor_7: 3/4 methods (correlation, perm_importance, ablation)
+
+============================================================
+ENSEMBLE SENSOR SELECTION
+============================================================
+Method weights: {'rf_importance': 0.3, 'perm_importance': 0.35, 'ablation': 0.25, 'correlation': 0.1}
+
+Top 10 sensors by ensemble ranking:
+   sensor  ensemble_score  rf_importance_score  perm_importance_score  ablation_score  correlation_score
+sensor_11        0.903721             1.000000               1.000000        0.614885           1.000000
+sensor_12        0.440916             0.056550               0.223648        1.000000           0.956739
+ sensor_9        0.393576             0.250962               0.735829        0.000000           0.607473
+ sensor_7        0.329721             0.042154               0.113017        0.735785           0.935722
+ sensor_4        0.327584             0.159999               0.209846        0.435004           0.973876
+sensor_15        0.320539             0.027816               0.061833        0.795534           0.916690
+sensor_21        0.290790             0.022677               0.048776        0.707147           0.901284
+ sensor_2        0.289285             0.019719               0.046343        0.726122           0.856184
+ sensor_3        0.164958             0.019621               0.025396        0.270180           0.826388
+sensor_14        0.147797             0.042640               0.033877        0.301606           0.477467
+
+============================================================
+AUTOMATED SENSOR RECOMMENDATION (Ensemble Ranking)
+============================================================
+
+✅ RECOMMENDED TOP 4 SENSORS:
+   sensor_11, sensor_12, sensor_9, sensor_7
+
+These sensors provide the best combination of:
+  • Predictive power (permutation importance: 35%)
+  • Model usage (RF importance: 30%)
+  • True impact (ablation: 25%)
+  • Linear correlation (correlation: 10%)
+
+Saved common sensors: _outputs/run_20251128_221844/sensor_analysis/common_sensors.txt
+Saved recommended sensors: _outputs/run_20251128_221844/sensor_analysis/recommended_sensors.txt
+Saved ensemble ranking: _outputs/run_20251128_221844/sensor_analysis/sensor_ensemble_ranking.csv
+[INFO] Reducing from 15 to 4 recommended sensors
+
+======================================================================
+STEP 9: REGIME CLUSTERING (K=6)
+======================================================================
+Settings: 3 | Sensors: 4
+
+======================================================================
+STEP 10: SEQUENCE GENERATION (length=50)
+======================================================================
+Total features: 13
+Train windows: (12672, 50, 13)
+Val windows: (3059, 50, 13)
+
+======================================================================
+STEP 11: TRAIN MODELS
+======================================================================
+
+--- Training TCN ---
+Training with single train/val split...
+Epoch 1/5
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1764368377.783027   26684 service.cc:152] XLA service 0x7aec640016f0 initialized for platform CUDA (this does not guarantee that XLA will be used). Devices:
+I0000 00:00:1764368377.783061   26684 service.cc:160]   StreamExecutor device (0): NVIDIA A100-SXM4-80GB, Compute Capability 8.0
+I0000 00:00:1764368379.154613   26684 cuda_dnn.cc:529] Loaded cuDNN version 91002
+I0000 00:00:1764368391.096165   26684 device_compiler.h:188] Compiled cluster using XLA!  This line is logged at most once for the lifetime of the process.
+[1m  1/198[0m [37m━━━━━━━━━━━━━━━━━━━━[0m [1m1:06:57[0m 20s/step - loss: 8439.0967 - mae: 81.4138[1m 13/198[0m [32m━[0m[37m━━━━━━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 7902.8726 - mae: 78.7200     [1m 26/198[0m [32m━━[0m[37m━━━━━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 7178.9888 - mae: 74.0409[1m 39/198[0m [32m━━━[0m[37m━━━━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 6426.9839 - mae: 68.7494[1m 52/198[0m [32m━━━━━[0m[37m━━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 5775.8408 - mae: 63.8198[1m 65/198[0m [32m━━━━━━[0m[37m━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 5254.4805 - mae: 59.7519[1m 78/198[0m [32m━━━━━━━[0m[37m━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 4832.3481 - mae: 56.3783[1m 91/198[0m [32m━━━━━━━━━[0m[37m━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 4485.5674 - mae: 53.5544[1m104/198[0m [32m━━━━━━━━━━[0m[37m━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 4195.9243 - mae: 51.1622[1m118/198[0m [32m━━━━━━━━━━━[0m[37m━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 3932.1865 - mae: 48.9540[1m130/198[0m [32m━━━━━━━━━━━━━[0m[37m━━━━━━━[0m [1m0s[0m 4ms/step - loss: 3737.2009 - mae: 47.2988[1m143/198[0m [32m━━━━━━━━━━━━━━[0m[37m━━━━━━[0m [1m0s[0m 4ms/step - loss: 3551.9504 - mae: 45.7113[1m157/198[0m [32m━━━━━━━━━━━━━━━[0m[37m━━━━━[0m [1m0s[0m 4ms/step - loss: 3377.0288 - mae: 44.1983[1m170/198[0m [32m━━━━━━━━━━━━━━━━━[0m[37m━━━[0m [1m0s[0m 4ms/step - loss: 3233.6467 - mae: 42.9492[1m183/198[0m [32m━━━━━━━━━━━━━━━━━━[0m[37m━━[0m [1m0s[0m 4ms/step - loss: 3105.3987 - mae: 41.8228[1m196/198[0m [32m━━━━━━━━━━━━━━━━━━━[0m[37m━[0m [1m0s[0m 4ms/step - loss: 2989.7966 - mae: 40.8005[1m198/198[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m26s[0m 28ms/step - loss: 2964.7268 - mae: 40.5780 - val_loss: 1500.4376 - val_mae: 32.0128 - learning_rate: 0.0010
+Epoch 2/5
+[1m  1/198[0m [37m━━━━━━━━━━━━━━━━━━━━[0m [1m9s[0m 50ms/step - loss: 591.5844 - mae: 20.1368[1m 14/198[0m [32m━[0m[37m━━━━━━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 468.7348 - mae: 17.1550 [1m 27/198[0m [32m━━[0m[37m━━━━━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 450.4851 - mae: 16.7388[1m 40/198[0m [32m━━━━[0m[37m━━━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 439.5317 - mae: 16.5192[1m 53/198[0m [32m━━━━━[0m[37m━━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 430.9247 - mae: 16.3562[1m 66/198[0m [32m━━━━━━[0m[37m━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 424.1704 - mae: 16.2115[1m 80/198[0m [32m━━━━━━━━[0m[37m━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 418.8733 - mae: 16.0883[1m 93/198[0m [32m━━━━━━━━━[0m[37m━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 415.0476 - mae: 15.9960[1m106/198[0m [32m━━━━━━━━━━[0m[37m━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 411.6463 - mae: 15.9161[1m119/198[0m [32m━━━━━━━━━━━━[0m[37m━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 408.8800 - mae: 15.8499[1m132/198[0m [32m━━━━━━━━━━━━━[0m[37m━━━━━━━[0m [1m0s[0m 4ms/step - loss: 406.2299 - mae: 15.7873[1m145/198[0m [32m━━━━━━━━━━━━━━[0m[37m━━━━━━[0m [1m0s[0m 4ms/step - loss: 403.7885 - mae: 15.7295[1m158/198[0m [32m━━━━━━━━━━━━━━━[0m[37m━━━━━[0m [1m0s[0m 4ms/step - loss: 401.4426 - mae: 15.6741[1m171/198[0m [32m━━━━━━━━━━━━━━━━━[0m[37m━━━[0m [1m0s[0m 4ms/step - loss: 398.9540 - mae: 15.6165[1m184/198[0m [32m━━━━━━━━━━━━━━━━━━[0m[37m━━[0m [1m0s[0m 4ms/step - loss: 396.5806 - mae: 15.5615[1m197/198[0m [32m━━━━━━━━━━━━━━━━━━━[0m[37m━[0m [1m0s[0m 4ms/step - loss: 394.4089 - mae: 15.5113[1m198/198[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m1s[0m 5ms/step - loss: 394.0815 - mae: 15.5037 - val_loss: 379.4925 - val_mae: 15.9849 - learning_rate: 0.0010
+Epoch 3/5
+[1m  1/198[0m [37m━━━━━━━━━━━━━━━━━━━━[0m [1m10s[0m 54ms/step - loss: 455.5843 - mae: 17.3173[1m 13/198[0m [32m━[0m[37m━━━━━━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 328.7639 - mae: 14.1496  [1m 26/198[0m [32m━━[0m[37m━━━━━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 318.9456 - mae: 13.8443[1m 39/198[0m [32m━━━[0m[37m━━━━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 319.0782 - mae: 13.8200[1m 52/198[0m [32m━━━━━[0m[37m━━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 319.4778 - mae: 13.8192[1m 65/198[0m [32m━━━━━━[0m[37m━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 318.6320 - mae: 13.7993[1m 79/198[0m [32m━━━━━━━[0m[37m━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 317.5128 - mae: 13.7742[1m 92/198[0m [32m━━━━━━━━━[0m[37m━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 316.0673 - mae: 13.7409[1m105/198[0m [32m━━━━━━━━━━[0m[37m━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 314.4978 - mae: 13.7064[1m118/198[0m [32m━━━━━━━━━━━[0m[37m━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 313.2504 - mae: 13.6782[1m132/198[0m [32m━━━━━━━━━━━━━[0m[37m━━━━━━━[0m [1m0s[0m 4ms/step - loss: 311.9255 - mae: 13.6483[1m145/198[0m [32m━━━━━━━━━━━━━━[0m[37m━━━━━━[0m [1m0s[0m 4ms/step - loss: 310.8102 - mae: 13.6229[1m158/198[0m [32m━━━━━━━━━━━━━━━[0m[37m━━━━━[0m [1m0s[0m 4ms/step - loss: 309.7534 - mae: 13.5985[1m171/198[0m [32m━━━━━━━━━━━━━━━━━[0m[37m━━━[0m [1m0s[0m 4ms/step - loss: 308.7283 - mae: 13.5745[1m184/198[0m [32m━━━━━━━━━━━━━━━━━━[0m[37m━━[0m [1m0s[0m 4ms/step - loss: 307.8011 - mae: 13.5529[1m197/198[0m [32m━━━━━━━━━━━━━━━━━━━[0m[37m━[0m [1m0s[0m 4ms/step - loss: 306.8323 - mae: 13.5298[1m198/198[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m1s[0m 4ms/step - loss: 306.6859 - mae: 13.5263 - val_loss: 654.8863 - val_mae: 20.5800 - learning_rate: 0.0010
+Epoch 4/5
+[1m  1/198[0m [37m━━━━━━━━━━━━━━━━━━━━[0m [1m6s[0m 33ms/step - loss: 425.0652 - mae: 15.7134[1m 14/198[0m [32m━[0m[37m━━━━━━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 291.3953 - mae: 12.8783 [1m 27/198[0m [32m━━[0m[37m━━━━━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 281.4471 - mae: 12.7014[1m 40/198[0m [32m━━━━[0m[37m━━━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 277.1270 - mae: 12.6400[1m 53/198[0m [32m━━━━━[0m[37m━━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 274.2057 - mae: 12.5949[1m 66/198[0m [32m━━━━━━[0m[37m━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 272.5154 - mae: 12.5708[1m 79/198[0m [32m━━━━━━━[0m[37m━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 271.2197 - mae: 12.5507[1m 93/198[0m [32m━━━━━━━━━[0m[37m━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 270.9766 - mae: 12.5498[1m107/198[0m [32m━━━━━━━━━━[0m[37m━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 270.5398 - mae: 12.5385[1m120/198[0m [32m━━━━━━━━━━━━[0m[37m━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 269.9437 - mae: 12.5234[1m133/198[0m [32m━━━━━━━━━━━━━[0m[37m━━━━━━━[0m [1m0s[0m 4ms/step - loss: 269.4282 - mae: 12.5122[1m146/198[0m [32m━━━━━━━━━━━━━━[0m[37m━━━━━━[0m [1m0s[0m 4ms/step - loss: 268.8650 - mae: 12.5010[1m160/198[0m [32m━━━━━━━━━━━━━━━━[0m[37m━━━━[0m [1m0s[0m 4ms/step - loss: 268.2277 - mae: 12.4878[1m174/198[0m [32m━━━━━━━━━━━━━━━━━[0m[37m━━━[0m [1m0s[0m 4ms/step - loss: 267.6335 - mae: 12.4756[1m187/198[0m [32m━━━━━━━━━━━━━━━━━━[0m[37m━━[0m [1m0s[0m 4ms/step - loss: 267.1100 - mae: 12.4652[1m198/198[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m1s[0m 4ms/step - loss: 266.7035 - mae: 12.4580 - val_loss: 643.3641 - val_mae: 20.5997 - learning_rate: 0.0010
+Epoch 5/5
+[1m  1/198[0m [37m━━━━━━━━━━━━━━━━━━━━[0m [1m10s[0m 56ms/step - loss: 275.7985 - mae: 13.1105[1m 14/198[0m [32m━[0m[37m━━━━━━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 280.6312 - mae: 12.9446  [1m 27/198[0m [32m━━[0m[37m━━━━━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 272.4047 - mae: 12.6553[1m 40/198[0m [32m━━━━[0m[37m━━━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 271.8820 - mae: 12.5775[1m 53/198[0m [32m━━━━━[0m[37m━━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 269.9795 - mae: 12.5106[1m 67/198[0m [32m━━━━━━[0m[37m━━━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 268.2965 - mae: 12.4591[1m 80/198[0m [32m━━━━━━━━[0m[37m━━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 266.1323 - mae: 12.4014[1m 93/198[0m [32m━━━━━━━━━[0m[37m━━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 263.9029 - mae: 12.3459[1m107/198[0m [32m━━━━━━━━━━[0m[37m━━━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 261.5827 - mae: 12.2895[1m120/198[0m [32m━━━━━━━━━━━━[0m[37m━━━━━━━━[0m [1m0s[0m 4ms/step - loss: 259.6415 - mae: 12.2426[1m133/198[0m [32m━━━━━━━━━━━━━[0m[37m━━━━━━━[0m [1m0s[0m 4ms/step - loss: 258.0833 - mae: 12.2069[1m146/198[0m [32m━━━━━━━━━━━━━━[0m[37m━━━━━━[0m [1m0s[0m 4ms/step - loss: 256.6892 - mae: 12.1754[1m159/198[0m [32m━━━━━━━━━━━━━━━━[0m[37m━━━━[0m [1m0s[0m 4ms/step - loss: 255.3476 - mae: 12.1451[1m172/198[0m [32m━━━━━━━━━━━━━━━━━[0m[37m━━━[0m [1m0s[0m 4ms/step - loss: 254.1154 - mae: 12.1167[1m185/198[0m [32m━━━━━━━━━━━━━━━━━━[0m[37m━━[0m [1m0s[0m 4ms/step - loss: 252.9269 - mae: 12.0888[1m198/198[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m0s[0m 4ms/step - loss: 251.8184 - mae: 12.0617[1m198/198[0m [32m━━━━━━━━━━━━━━━━━━━━[0m[37m[0m [1m1s[0m 5ms/step - loss: 251.7437 - mae: 12.0598 - val_loss: 996.7971 - val_mae: 25.2538 - learning_rate: 5.0000e-04
+[INFO] Saved training history to: _outputs/training_logs/tcn_train_history.csv
+[SAVE] Saving final tcn model to _outputs/run_20251128_221844/final_model/tcn_final.keras
+[SAVE] Saved tcn metadata to _outputs/run_20251128_221844/final_model/tcn_final.meta.json
+
+======================================================================
+STEP 12: TEST & EVALUATE
+======================================================================
+
+--- Evaluating TCN ---
+
+[TCN] Per-dataset test metrics:
+dataset      RMSE       CMAPSS  n_windows
+  FD001 22.898235 65282.592785       8255
+[INFO] Saved per-dataset window metrics to: _outputs/run_20251128_221844/model/per_dataset_window_metrics_tcn.csv
+[TCN][UNCERTAINTY] Calibrating conformal intervals (alpha=0.1)...
+[TCN][UNCERTAINTY] qhat = 30.5632
+Saved: /content/drive/MyDrive/WPI courses/Colab_Notebooks/RULCapstonProject/_outputs/run_20251128_221844/model/final_engine_rul_predictions_tcn.csv
+[PLOT] Saved scalable vector plot: _outputs/run_20251128_221844/figures/rul_bands_final_all_tcn.svg
+[PLOT] Saved scalable vector plot: _outputs/run_20251128_221844/figures/rul_bands_final_FD001_tcn.svg
+
+[TCN] Interval coverage summary:
+dataset  n  covered  coverage
+  FD001 93       82   0.88172
+
+[TCN] Interval width summary:
+dataset  count      mean    median
+  FD001     93 55.904509 61.126373
+
+[TCN] Top 20 engines by worst case |by prediction error|:
+dataset  engine_id  y_true     y_pred      delta  abs_delta  pct_abs_error  accuracy_pct_engine
+  FD001         93    85.0  18.434443 -66.565557  66.565557      78.312421            21.687579
+  FD001         30   115.0  68.979851 -46.020149  46.020149      40.017521            59.982479
+  FD001          8    95.0  57.232159 -37.767841  37.767841      39.755622            60.244378
+  FD001         45   114.0  76.827751 -37.172249  37.172249      32.607236            67.392764
+  FD001         12   124.0  86.849144 -37.150856  37.150856      29.960368            70.039632
+  FD001         74   125.0  89.740700 -35.259300  35.259300      28.207440            71.792560
+  FD001         96   125.0  90.090889 -34.909111  34.909111      27.927289            72.072711
+  FD001         51   114.0  79.367035 -34.632965  34.632965      30.379794            69.620206
+  FD001         65   125.0  92.496208 -32.503792  32.503792      26.003033            73.996967
+  FD001         95   125.0  92.604050 -32.395950  32.395950      25.916760            74.083240
+  FD001         91    38.0   7.241942 -30.758058  30.758058      80.942258            19.057742
+  FD001         67    77.0 107.488182  30.488182  30.488182      39.595042            60.404958
+  FD001         79    63.0  92.527626  29.527626  29.527626      46.869248            53.130752
+  FD001         23   113.0  84.064171 -28.935829  28.935829      25.606928            74.393072
+  FD001         33   106.0  78.663513 -27.336487  27.336487      25.789139            74.210861
+  FD001         73   125.0  99.570786 -25.429214  25.429214      20.343372            79.656628
+  FD001         98    59.0  83.784508  24.784508  24.784508      42.007640            57.992360
+  FD001         59   114.0  89.368134 -24.631866  24.631866      21.606900            78.393100
+  FD001         37    21.0  45.276249  24.276249  24.276249     115.601185           -15.601185
+  FD001         88   115.0  90.975471 -24.024529  24.024529      20.890894            79.109106
+
+[TCN] Final-engine metrics (RMSE/CMAPSS/Accuracy):
+dataset  n_engines  RMSE_final  CMAPSS_final  MAPE_final  Accuracy_pct_final acc_within_10 acc_within_20
+  FD001         93   19.308385    536.892258   28.463842           71.536158        41.9 %        72.0 %
+OVERALL         93   19.308385    536.892258   28.463842           71.536158        41.9 %        72.0 %
+
+======================================================================
+STEP 13: REPORT RESULTS
+======================================================================
+
+FINAL-ENGINE METRICS (OVERALL):
+
+TCN:
+dataset  n_engines  RMSE_final  CMAPSS_final  MAPE_final  Accuracy_pct_final acc_within_10 acc_within_20
+OVERALL         93   19.308385    536.892258   28.463842           71.536158        41.9 %        72.0 %
+
+ ----> TOTAL RUNTIME:0.0194 Hours

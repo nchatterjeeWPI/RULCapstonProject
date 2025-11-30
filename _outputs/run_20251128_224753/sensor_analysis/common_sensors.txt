@@ -1,0 +1,7 @@
+# Common sensors appearing in top rankings across multiple methods
+# Criteria: Top 5 in at least 3 methods
+
+sensor_11
+sensor_15
+sensor_4
+sensor_9

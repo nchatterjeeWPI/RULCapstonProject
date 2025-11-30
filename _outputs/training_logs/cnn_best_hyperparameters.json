@@ -1,0 +1,12 @@
+{
+  "filters": 48,
+  "kernel_size": 7,
+  "dropout": 0.2,
+  "dense_units": 96,
+  "lr": 0.0002681452735066759,
+  "tuner/epochs": 15,
+  "tuner/initial_epoch": 5,
+  "tuner/bracket": 2,
+  "tuner/round": 2,
+  "tuner/trial_id": "0015"
+}

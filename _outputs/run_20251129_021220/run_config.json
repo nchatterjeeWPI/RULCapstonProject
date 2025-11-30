@@ -1,0 +1,56 @@
+{
+  "timestamp": "2025-11-29T02:12:31",
+  "python_version": "3.12.12 (main, Oct 10 2025, 08:52:57) [GCC 11.4.0]",
+  "platform": "Linux-6.6.105+-x86_64-with-glibc2.35",
+  "args": {
+    "download": false,
+    "github_token": null,
+    "out": "_outputs/run_20251129_021220",
+    "arch": [
+      "all"
+    ],
+    "epochs": 75,
+    "sequence_length": 50,
+    "regimes_k": 6,
+    "val_size": 0.2,
+    "cap": null,
+    "datasets": [
+      "FD001",
+      "FD002",
+      "FD003",
+      "FD004"
+    ],
+    "tuning": "off",
+    "use_common_sensors": true,
+    "uncertainty": null,
+    "alpha": null,
+    "mc_samples": null,
+    "cv_folds": 5
+  },
+  "config": {
+    "architectures": [
+      "tcn",
+      "lstm",
+      "cnn"
+    ],
+    "datasets": [
+      "FD001",
+      "FD002",
+      "FD003",
+      "FD004"
+    ],
+    "epochs": 75,
+    "sequence_length": 50,
+    "K": 6,
+    "cap_val": 125,
+    "val_size": 0.2,
+    "use_tuning": false,
+    "use_common_sensors": true,
+    "run_sensor_analysis": true,
+    "uncertainty_method": "conformal",
+    "alpha": 0.1,
+    "mc_samples": 50,
+    "clip_pred": true,
+    "cv_folds": 5
+  }
+}
