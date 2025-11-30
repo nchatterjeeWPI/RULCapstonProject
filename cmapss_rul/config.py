@@ -48,6 +48,9 @@ class DefaultConfig:
     datasets: List[str] = tuple(ALL_FD)
     cv_folds: int = 1
 
+    ema_span: int = 0
+    lag_steps: int = 0
+
     # Uncertainty defaults
     uncertainty_method: Literal["none", "conformal", "mc"] = "conformal"
     alpha: float = 0.10

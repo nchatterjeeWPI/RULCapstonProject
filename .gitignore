@@ -18,8 +18,7 @@ env/
 *.swo
 *~
 
-# Outputs and Results
-_outputs/
+
 *.csv
 *.png
 *.jpg
@@ -64,3 +63,6 @@ dist/
 *.egg-info/
 /check_cuda.py
 /install_cuda_cudnn.sh
+
+# Keep Outputs and Results
+!_outputs/**

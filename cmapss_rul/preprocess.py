@@ -144,3 +144,97 @@ def cap_rul(df: pd.DataFrame, cap: int = 125) -> pd.DataFrame:
         df = df.copy()
         df['RUL'] = np.minimum(df['RUL'], cap)
     return df
+def apply_ema_smoothing(
+    df: pd.DataFrame,
+    sensor_cols: list,
+    span: int = 10,
+) -> pd.DataFrame:
+    """
+    Apply exponential moving average smoothing to sensor columns.
+
+    Smoothing is done per engine (and per dataset if present), preserving
+    the temporal order by 'cycle'.
+
+    Args:
+        df: Input DataFrame containing at least 'engine_id' and 'cycle'.
+        sensor_cols: List of sensor column names to smooth.
+        span: EMA span parameter. Higher span -> smoother signal.
+
+    Returns:
+        A copy of df with smoothed sensor columns.
+    """
+    if span is None or span <= 0:
+        return df
+
+    if not sensor_cols:
+        return df
+
+    df = df.copy()
+
+    # Group by dataset + engine_id if dataset column is present, otherwise
+    # just by engine_id.
+    group_cols = [c for c in ["dataset", "engine_id"] if c in df.columns]
+    if not group_cols:
+        group_cols = ["engine_id"]
+
+    df = df.sort_values(group_cols + ["cycle"])
+
+    for col in sensor_cols:
+        if col not in df.columns:
+            continue
+        df[col] = (
+            df.groupby(group_cols)[col]
+              .transform(lambda s: s.ewm(span=span, adjust=False).mean())
+        )
+
+    return df
+
+
+def add_lag_diff_features(
+    df: pd.DataFrame,
+    sensor_cols: list,
+    lag_steps: int = 5,
+) -> tuple[pd.DataFrame, list]:
+    """
+    Add lag-difference features for each sensor column.
+
+    For each sensor column s, creates s_diff_<lag_steps> = s(t) - s(t - lag).
+
+    Args:
+        df: Input DataFrame containing at least 'engine_id' and 'cycle'.
+        sensor_cols: List of base sensor columns to derive diffs from.
+        lag_steps: Number of cycles to lag. 0 or negative disables.
+
+    Returns:
+        (df_with_diffs, new_columns)
+        df_with_diffs: copy of df with new _diff_ columns added.
+        new_columns: list of newly created column names.
+    """
+    if lag_steps is None or lag_steps <= 0:
+        return df, []
+
+    if not sensor_cols:
+        return df, []
+
+    df = df.copy()
+
+    group_cols = [c for c in ["dataset", "engine_id"] if c in df.columns]
+    if not group_cols:
+        group_cols = ["engine_id"]
+
+    df = df.sort_values(group_cols + ["cycle"])
+
+    new_cols: list[str] = []
+
+    for col in sensor_cols:
+        if col not in df.columns:
+            continue
+        new_col = f"{col}_diff_{lag_steps}"
+        df[new_col] = (
+            df.groupby(group_cols)[col]
+              .diff(lag_steps)
+              .fillna(0.0)
+        )
+        new_cols.append(new_col)
+
+    return df, new_cols

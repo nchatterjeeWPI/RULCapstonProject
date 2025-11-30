@@ -83,6 +83,14 @@ def parse_arguments() -> Tuple[Any, Dict[str, Any]]:
     if cv_folds is None:
         cv_folds = DEFAULT.cv_folds
 
+    ema_span = getattr(args, "ema_span", None)
+    if ema_span is None:
+        ema_span = getattr(DEFAULT, "ema_span", 0)
+
+    lag_steps = getattr(args, "lag_steps", None)
+    if lag_steps is None:
+        lag_steps = getattr(DEFAULT, "lag_steps", 0)
+
     config = {
         'architectures': architectures,
         'datasets': datasets,
@@ -99,6 +107,8 @@ def parse_arguments() -> Tuple[Any, Dict[str, Any]]:
         'mc_samples': int(mc_samples),
         'clip_pred': bool(clip_pred),
         'cv_folds': int(cv_folds),
+        'ema_span': int(ema_span),
+        'lag_steps': int(lag_steps),
     }
 
     print(f"Architectures: {architectures}")
@@ -1218,7 +1228,10 @@ def run_full_pipeline(
         use_tuning: bool,
         sensors_to_keep: List[str] = None,
         run_sensor_analysis_flag: bool = True,
-        output_dir: Path = None
+        ema_span=0,
+        lag_steps=0,
+        output_dir: Path = None,
+        config: Dict[str, Any] | None = None
 ) -> Dict[str, Dict[str, Any]]:
     """
     Run the complete RUL prediction pipeline (legacy wrapper).
@@ -1226,6 +1239,7 @@ def run_full_pipeline(
     This function is kept for backward compatibility but delegates to
     the individual pipeline step functions.
     """
+
     if output_dir is None:
         output_dir = Path("./_outputs/results")
 
@@ -1254,6 +1268,40 @@ def run_full_pipeline(
         train_df, val_df, test_data, datasets, sensor_results, sensor_cols
     )
 
+    # ------------------------------------------------------------------
+    # OPTIONAL FEATURE ENGINEERING: EMA smoothing + lag-diff features
+    # (controlled by config via ema_span, lag_steps; 0 => disabled)
+    # ------------------------------------------------------------------
+    if ema_span and ema_span > 0:
+        print(f"[FEATURES] Applying EMA smoothing (span={ema_span})")
+        train_df = preprocess.apply_ema_smoothing(train_df, sensor_cols,
+                                                  ema_span)
+        val_df = preprocess.apply_ema_smoothing(val_df, sensor_cols, ema_span)
+        for fd in datasets:
+            test_data[fd] = preprocess.apply_ema_smoothing(
+                test_data[fd], sensor_cols, ema_span
+            )
+
+    if lag_steps and lag_steps > 0:
+        print(f"[FEATURES] Adding lag-diff features (lag_steps={lag_steps})")
+        # Build lag features and extend sensor_cols so they are used as inputs
+        train_df, new_train_cols = preprocess.add_lag_diff_features(
+            train_df, sensor_cols, lag_steps
+        )
+        val_df, new_val_cols = preprocess.add_lag_diff_features(
+            val_df, sensor_cols, lag_steps
+        )
+        # For test data we ignore the returned list; columns are the same pattern
+        for fd in datasets:
+            test_data[fd], _ = preprocess.add_lag_diff_features(
+                test_data[fd], sensor_cols, lag_steps
+            )
+
+        # All new cols follow the same naming convention, so we can use
+        # new_train_cols as canonical and add them once.
+        lag_cols = new_train_cols
+        sensor_cols = sensor_cols + lag_cols
+
     # Prepare sequences
     sequences_data = sequence_generation(
         train_df, val_df, test_data, datasets,
@@ -1266,7 +1314,7 @@ def run_full_pipeline(
 
     # Evaluate
     all_results = test_and_evaluate(trained_models, sequences_data, datasets,
-                                    output_dir)
+                                    output_dir, config or {})
 
     # Report
     report_results(all_results, output_dir, architectures)

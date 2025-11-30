@@ -76,6 +76,18 @@ def build_parser() -> argparse.ArgumentParser:
             "Use 1 to disable CV (single train/val split)."
         ),
     )
+    parser.add_argument(
+        "--ema-span",
+        type=int,
+        default=None,
+        help="EMA smoothing span applied to sensor columns (0 or None to disable)",
+    )
+    parser.add_argument(
+        "--lag-steps",
+        type=int,
+        default=None,
+        help="Lag (in cycles) for diff-based sensor features (0 or None to disable)",
+    )
 
     return parser
 
