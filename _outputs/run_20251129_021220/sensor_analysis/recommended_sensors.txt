@@ -1,8 +1,0 @@
-# Recommended sensors via Ensemble Ranking
-# Top 4 sensors based on weighted combination of all methods
-# Weights: Permutation (35%), RF Importance (30%), Ablation (25%), Correlation (10%)
-
-sensor_11
-sensor_15
-sensor_13
-sensor_4

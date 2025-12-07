@@ -1,9 +1,0 @@
-{
-  "filters": 96,
-  "blocks": 5,
-  "kernel_size": 7,
-  "dropout": 0.1,
-  "lr": 0.00045259766601828393,
-  "dense_units": 96,
-  "batch_size": 64
-}
